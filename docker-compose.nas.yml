@@ -1,0 +1,32 @@
+# ISP Observatory — NAS / Dockge deployment
+#
+# Prerequisites:
+#   git clone https://github.com/NathanBhanji/isp-observability.git
+#   cd isp-observability
+#   docker compose -f docker-compose.yml build
+#
+# Then paste this file into Dockge as a new stack.
+
+services:
+  collector:
+    image: isp-observability-collector:latest
+    network_mode: host
+    cap_add:
+      - NET_RAW
+    volumes:
+      - /opt/isp-observability/data:/app/data
+    environment:
+      - DATABASE_PATH=/app/data/isp-observability.db
+      - PORT=4000
+    restart: unless-stopped
+
+  web:
+    image: isp-observability-web:latest
+    ports:
+      - "3000:3000"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - COLLECTOR_URL=http://host.docker.internal:4000
+      - NODE_ENV=production
+    restart: unless-stopped
