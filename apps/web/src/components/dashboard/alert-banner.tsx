@@ -1,10 +1,10 @@
-import { AlertTriangle, AlertCircle } from "lucide-react";
+import { AlertTriangle, AlertCircle, Info } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 
 export interface AlertItem {
-  severity: "warning" | "critical";
+  severity: "warning" | "critical" | "info";
   title: string;
   description: string;
   action?: string;
@@ -35,6 +35,13 @@ const SEVERITY_CONFIG = {
     bg: "bg-destructive/5",
     title: "text-destructive",
     iconColor: "text-destructive",
+  },
+  info: {
+    icon: Info,
+    border: "border-blue-500/30",
+    bg: "bg-blue-500/5",
+    title: "text-blue-400",
+    iconColor: "text-blue-400",
   },
 };
 
@@ -108,7 +115,8 @@ export function AlertGroup({ alerts, className }: AlertGroupProps) {
 
   // Use the most severe alert's styling for the card border
   const hasCritical = alerts.some((a) => a.severity === "critical");
-  const cardConfig = SEVERITY_CONFIG[hasCritical ? "critical" : "warning"];
+  const hasWarning = alerts.some((a) => a.severity === "warning");
+  const cardConfig = SEVERITY_CONFIG[hasCritical ? "critical" : hasWarning ? "warning" : "info"];
 
   return (
     <Card className={cn("border", cardConfig.border, cardConfig.bg, className)}>

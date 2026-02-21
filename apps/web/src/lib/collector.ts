@@ -70,8 +70,9 @@ export async function fetchThroughputLatest() {
     single: any;
     multi: any;
     ratio: number | null;
-    download: { single: any; multi: any; ratio: number | null };
-    upload: { single: any; multi: any; ratio: number | null };
+    adjustedRatio: number | null;
+    download: { single: any; multi: any; ratio: number | null; adjustedRatio: number | null };
+    upload: { single: any; multi: any; ratio: number | null; adjustedRatio: number | null };
   }>("/api/throughput/latest");
 }
 

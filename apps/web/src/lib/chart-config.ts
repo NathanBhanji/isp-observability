@@ -21,6 +21,10 @@ export const throughputChartConfig = {
     label: "Multiple Connections",
     color: "var(--chart-4)",
   },
+  wanTotal: {
+    label: "Total Router Traffic",
+    color: "var(--chart-3)",
+  },
 } satisfies ChartConfig;
 
 export const correlationChartConfig = {

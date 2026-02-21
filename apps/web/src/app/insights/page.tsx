@@ -10,6 +10,12 @@ import {
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { THRESHOLDS, TARGET_LABELS, ISP_PLAN } from "@isp/shared";
+import {
+  adjustedSpeed,
+  adjustedMedian,
+  verdictSoftening,
+  type ThroughputTest,
+} from "@/lib/throughput-utils";
 import { VerdictCard, type VerdictStatus } from "@/components/dashboard/verdict-card";
 import { AlertBanner } from "@/components/dashboard/alert-banner";
 import { interpretCorrelation, formatDurationMs, HOP_LABELS } from "@/lib/labels";
@@ -132,7 +138,15 @@ export default async function InsightsPage({
   const dlP95 = percentile(dlSpeeds, 95);
   const ulMedian = percentile(ulSpeeds, 50);
 
-  // Throttle frequency: how often is ratio > threshold?
+  // WAN-adjusted medians (what ISP actually delivered)
+  const adjDlMedian = adjustedMedian(dlTests as ThroughputTest[]) ?? dlMedian;
+  const adjUlMedian = adjustedMedian(ulTests as ThroughputTest[]) ?? ulMedian;
+  const adjDlSpeeds = (dlTests as ThroughputTest[]).map(adjustedSpeed).sort((a, b) => a - b);
+  const adjDlP5 = adjDlSpeeds.length > 0 ? percentile(adjDlSpeeds, 5) : dlP5;
+  const adjDlP95 = adjDlSpeeds.length > 0 ? percentile(adjDlSpeeds, 95) : dlP95;
+  const hasAdjData = adjDlMedian !== dlMedian;
+
+  // Throttle frequency: how often is ratio > threshold? (raw — for policing evidence)
   const ratioTests: number[] = [];
   for (let i = 0; i < Math.min(singleDlTests.length, dlTests.length); i++) {
     if (singleDlTests[i]?.speed_mbps > 0 && dlTests[i]?.speed_mbps > 0) {
@@ -141,6 +155,18 @@ export default async function InsightsPage({
   }
   const throttledCount = ratioTests.filter((r) => r > THRESHOLDS.policingRatio).length;
   const throttleFreq = ratioTests.length > 0 ? (throttledCount / ratioTests.length) * 100 : 0;
+
+  // WAN-adjusted throttle ratios (full context)
+  const adjRatioTests: number[] = [];
+  for (let i = 0; i < Math.min(singleDlTests.length, dlTests.length); i++) {
+    const adjSingle = adjustedSpeed(singleDlTests[i] as ThroughputTest);
+    if (adjSingle > 0) {
+      adjRatioTests.push(adjustedSpeed(dlTests[i] as ThroughputTest) / adjSingle);
+    }
+  }
+  const adjMedianRatio = adjRatioTests.length > 0
+    ? adjRatioTests.sort((a, b) => a - b)[Math.floor(adjRatioTests.length / 2)]
+    : null;
 
   // Upload throttle frequency
   const singleUlTests = (throughputHistory || []).filter(
@@ -213,11 +239,21 @@ export default async function InsightsPage({
     latencyTrendMs = secondAvg - firstAvg;
   }
 
-  // ── Plan comparison ─────────────────────────────────────────
-  const dlPlanPct = dlMedian > 0 ? (dlMedian / ISP_PLAN.avgPeakDown) * 100 : null;
-  const ulPlanPct = ulMedian > 0 ? (ulMedian / ISP_PLAN.avgPeakUp) * 100 : null;
-  const dlBelowMinimum = dlMedian > 0 && dlMedian < ISP_PLAN.minimumDown;
-  const ulBelowMinimum = ulMedian > 0 && ulMedian < ISP_PLAN.minimumUp;
+  // ── Plan comparison (use WAN-adjusted medians) ──────────────
+  const dlPlanPct = adjDlMedian > 0 ? (adjDlMedian / ISP_PLAN.avgPeakDown) * 100 : null;
+  const dlPlanPctRaw = dlMedian > 0 ? (dlMedian / ISP_PLAN.avgPeakDown) * 100 : null;
+  const ulPlanPct = adjUlMedian > 0 ? (adjUlMedian / ISP_PLAN.avgPeakUp) * 100 : null;
+  const dlBelowMinimum = adjDlMedian > 0 && adjDlMedian < ISP_PLAN.minimumDown;
+  const dlBelowMinimumRaw = dlMedian > 0 && dlMedian < ISP_PLAN.minimumDown;
+  const ulBelowMinimum = adjUlMedian > 0 && adjUlMedian < ISP_PLAN.minimumUp;
+
+  // Verdict softening
+  const dlSoftening = verdictSoftening(
+    dlMedian > 0 ? dlMedian : null,
+    adjDlMedian > 0 ? adjDlMedian : null,
+    ISP_PLAN.minimumDown,
+    "the speed test"
+  );
 
   // ── Build historical verdict ───────────────────────────────
 
@@ -229,6 +265,7 @@ export default async function InsightsPage({
 
   let verdictStatus: VerdictStatus = "healthy";
   if ((hasThrottling && throttleFreq > 50) || hasSignificantOutages || dlBelowMinimum) verdictStatus = "critical";
+  else if (dlBelowMinimumRaw && dlSoftening.shouldSoften) verdictStatus = "degraded"; // softened from critical
   else if (hasThrottling || hasUlThrottling || hasHighLoss) verdictStatus = "poor";
   else if (dlPlanPct != null && dlPlanPct < 60) verdictStatus = "poor";
   else if (outageCount > 0 || hasDegradation) verdictStatus = "degraded";
@@ -261,11 +298,12 @@ export default async function InsightsPage({
   // Download throttling
   if (hasThrottling) {
     const ratio = evidence?.throughputPolicing?.policingRatio;
+    const adjRatio = evidence?.throughputPolicing?.adjustedPolicingRatio;
     issues.push({
       id: "dl-throttle",
       severity: throttleFreq > 70 ? "critical" : "warning",
       title: "Download speed throttling detected",
-      description: `Your ISP limits individual connections to ${evidence?.throughputPolicing?.singleStreamMean?.toFixed(0) || "?"} Mbps, but allows ${evidence?.throughputPolicing?.multiDownloadMean?.toFixed(0) || "?"} Mbps across multiple connections. This is a ${ratio?.toFixed(2)}x difference.`,
+      description: `Your ISP limits individual connections to ${evidence?.throughputPolicing?.singleStreamMean?.toFixed(0) || "?"} Mbps, but allows ${evidence?.throughputPolicing?.multiDownloadMean?.toFixed(0) || "?"} Mbps across multiple connections. This is a ${ratio?.toFixed(2)}x raw ratio${adjRatio != null ? ` (${adjRatio.toFixed(2)}x WAN-adjusted)` : ""}.`,
       evidence: `Observed in ${throttleFreq.toFixed(0)}% of ${ratioTests.length} paired speed tests`,
       frequency: `${throttleFreq.toFixed(0)}% of tests`,
       recommendation: "This is a deliberate ISP policy that limits individual connection speeds. Consider using a download manager that supports multiple connections, or contact your ISP to ask about their speed limiting policy.",
@@ -294,19 +332,27 @@ export default async function InsightsPage({
 
   // Speeds below plan
   if (dlPlanPct != null && dlPlanPct < 80 && !hasThrottling) {
+    const effectiveMedian = adjDlMedian > 0 ? adjDlMedian : dlMedian;
+    const showAdjContext = hasAdjData && adjDlMedian > dlMedian;
     issues.push({
       id: "below-plan",
-      severity: dlBelowMinimum ? "critical" : dlPlanPct < 60 ? "warning" : "info",
+      severity: dlBelowMinimum ? "critical" : dlSoftening.shouldSoften ? "info" : dlPlanPct < 60 ? "warning" : "info",
       title: dlBelowMinimum
         ? `Download speed critically below ${ISP_PLAN.provider} ${ISP_PLAN.tier} plan`
-        : `Download speed below ${ISP_PLAN.provider} ${ISP_PLAN.tier} expectations`,
+        : dlSoftening.shouldSoften
+          ? `Household traffic reducing measured speed`
+          : `Download speed below ${ISP_PLAN.provider} ${ISP_PLAN.tier} expectations`,
       description: dlBelowMinimum
-        ? `Your median download of ${dlMedian.toFixed(0)} Mbps is below the ${ISP_PLAN.minimumDown} Mbps minimum threshold. ${ISP_PLAN.provider} publishes an average of ${ISP_PLAN.avgPeakDown} Mbps for the ${ISP_PLAN.tier} plan — you're getting ${dlPlanPct.toFixed(0)}% of that.`
-        : `Your median download of ${dlMedian.toFixed(0)} Mbps is ${dlPlanPct.toFixed(0)}% of ${ISP_PLAN.provider}'s published ${ISP_PLAN.avgPeakDown} Mbps average for the ${ISP_PLAN.tier} plan.`,
-      evidence: `Median across ${dlSpeeds.length} multi-connection tests`,
+        ? `Your ISP delivered a median of ${effectiveMedian.toFixed(0)} Mbps — below the ${ISP_PLAN.minimumDown} Mbps minimum threshold. ${ISP_PLAN.provider} publishes an average of ${ISP_PLAN.avgPeakDown} Mbps for the ${ISP_PLAN.tier} plan — you're getting ${dlPlanPct.toFixed(0)}% of that.`
+        : dlSoftening.shouldSoften
+          ? `${dlSoftening.backgroundNote}. Your ISP is delivering ${dlPlanPct.toFixed(0)}% of the ${ISP_PLAN.avgPeakDown} Mbps plan average.`
+          : `${showAdjContext ? `Your ISP delivered` : `Your median download of`} ${effectiveMedian.toFixed(0)} Mbps${showAdjContext ? ` to the router (measured: ${dlMedian.toFixed(0)} Mbps)` : ""} — ${dlPlanPct.toFixed(0)}% of ${ISP_PLAN.provider}'s published ${ISP_PLAN.avgPeakDown} Mbps average for the ${ISP_PLAN.tier} plan.`,
+      evidence: `Median across ${dlSpeeds.length} multi-connection tests${hasAdjData ? ` (adjusted for household traffic via UPnP)` : ""}`,
       recommendation: dlBelowMinimum
         ? `Under Ofcom's Broadband Speeds Code of Practice, if ${ISP_PLAN.provider} cannot resolve speeds below your minimum guaranteed level, you may be entitled to exit your contract without penalty. Contact ${ISP_PLAN.provider} with this data.`
-        : `This may be due to WiFi limitations, router placement, or network congestion. Try testing on a wired connection. If the issue persists, contact ${ISP_PLAN.provider} referencing their published average of ${ISP_PLAN.avgPeakDown} Mbps.`,
+        : dlSoftening.shouldSoften
+          ? `Your ISP is delivering adequate speed. Other devices on your network are consuming bandwidth during speed tests. Consider pausing other devices for more accurate measurements.`
+          : `This may be due to WiFi limitations, router placement, or network congestion. Try testing on a wired connection. If the issue persists, contact ${ISP_PLAN.provider} referencing their published average of ${ISP_PLAN.avgPeakDown} Mbps.`,
       link: "/throughput",
       linkLabel: "View speed analysis",
     });
@@ -317,7 +363,7 @@ export default async function InsightsPage({
       id: "ul-below-plan",
       severity: ulBelowMinimum ? "critical" : "warning",
       title: `Upload speed significantly below ${ISP_PLAN.tier} plan`,
-      description: `Your median upload of ${ulMedian.toFixed(0)} Mbps is only ${ulPlanPct.toFixed(0)}% of ${ISP_PLAN.provider}'s published ${ISP_PLAN.avgPeakUp} Mbps average for the ${ISP_PLAN.tier} plan.`,
+      description: `Your ${hasAdjData ? "ISP delivered a" : ""} median upload of ${adjUlMedian.toFixed(0)} Mbps — only ${ulPlanPct.toFixed(0)}% of ${ISP_PLAN.provider}'s published ${ISP_PLAN.avgPeakUp} Mbps average for the ${ISP_PLAN.tier} plan.`,
       evidence: `Median across ${ulSpeeds.length} multi-connection tests`,
       recommendation: `${ISP_PLAN.provider}'s ${ISP_PLAN.tier} plan promises symmetrical speeds (${ISP_PLAN.avgPeakUp} Mbps upload). Contact ${ISP_PLAN.provider} — this level of upload underperformance is not consistent with the plan.`,
       link: "/throughput",
@@ -570,6 +616,9 @@ export default async function InsightsPage({
               </div>
               <div className="text-[11px] text-muted-foreground font-mono mt-1 space-y-0.5">
                 <div>Median across {dlSpeeds.length} tests</div>
+                {hasAdjData && (
+                  <div className="text-primary/80">ISP delivered: {adjDlMedian.toFixed(0)} Mbps</div>
+                )}
                 {dlSpeeds.length > 2 && (
                   <div>Range: {dlP5.toFixed(0)} – {dlP95.toFixed(0)} Mbps (P5–P95)</div>
                 )}
@@ -597,6 +646,9 @@ export default async function InsightsPage({
               </div>
               <div className="text-[11px] text-muted-foreground font-mono mt-1 space-y-0.5">
                 <div>Median across {ulSpeeds.length} tests</div>
+                {hasAdjData && adjUlMedian !== ulMedian && (
+                  <div className="text-primary/80">ISP delivered: {adjUlMedian.toFixed(0)} Mbps</div>
+                )}
                 {ulPlanPct != null && (
                   <div className={ulBelowMinimum ? "text-verdict-critical" : ulPlanPct < 80 ? "text-verdict-poor" : "text-verdict-healthy"}>
                     {ulPlanPct.toFixed(0)}% of {ISP_PLAN.avgPeakUp} Mbps plan
@@ -713,6 +765,11 @@ export default async function InsightsPage({
                     </span>
                   </div>
                 </div>
+                {hasAdjData && (
+                  <div className="text-[10px] text-primary/70 ml-[76px] mt-1">
+                    ISP-delivered range: {adjDlP5.toFixed(0)} – {adjDlP95.toFixed(0)} Mbps (P5–P95, WAN-adjusted)
+                  </div>
+                )}
               </div>
 
               {/* Throttle detection visual */}
@@ -746,7 +803,13 @@ export default async function InsightsPage({
                   {hasThrottling && (
                     <div className="mt-2 text-[11px] text-verdict-poor flex items-center gap-1.5">
                       <AlertTriangle className="h-3 w-3" />
-                      {evidence?.throughputPolicing?.policingRatio?.toFixed(2)}x ratio — individual connections are throttled
+                      {evidence?.throughputPolicing?.policingRatio?.toFixed(2)}x raw ratio
+                      {evidence?.throughputPolicing?.adjustedPolicingRatio != null && (
+                        <span className="text-muted-foreground ml-1">
+                          ({evidence.throughputPolicing.adjustedPolicingRatio.toFixed(2)}x WAN-adjusted)
+                        </span>
+                      )}
+                      {" "}— individual connections are throttled
                     </div>
                   )}
                 </div>

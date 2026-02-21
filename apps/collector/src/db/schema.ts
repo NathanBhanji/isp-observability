@@ -177,6 +177,7 @@ export function initializeDatabase(db: Database): void {
   migrateRipeAtlasResults(db);
   migrateRipeMeasuredAt(db);
   migrateThroughputLatency(db);
+  migrateThroughputWanCounters(db);
 
 }
 
@@ -234,6 +235,19 @@ function migrateBytesColumn(db: Database): void {
 
   if (names.has("bytes_downloaded") && !names.has("bytes_transferred")) {
     db.exec(`ALTER TABLE throughput_tests RENAME COLUMN bytes_downloaded TO bytes_transferred`);
+  }
+}
+
+/** Add wan_rx_delta + wan_tx_delta columns to throughput_tests for WAN traffic accounting (idempotent). */
+function migrateThroughputWanCounters(db: Database): void {
+  const existing = db.prepare("PRAGMA table_info(throughput_tests)").all() as { name: string }[];
+  const names = new Set(existing.map((c) => c.name));
+
+  if (!names.has("wan_rx_delta")) {
+    db.exec(`ALTER TABLE throughput_tests ADD COLUMN wan_rx_delta INTEGER`);
+  }
+  if (!names.has("wan_tx_delta")) {
+    db.exec(`ALTER TABLE throughput_tests ADD COLUMN wan_tx_delta INTEGER`);
   }
 }
 

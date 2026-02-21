@@ -35,7 +35,7 @@ export function ThroughputHistory({
   direction = "download",
 }: ThroughputHistoryProps) {
   // Group tests by approximate time into single/multi pairs
-  const pairs: { time: string; single: number; multi: number }[] = [];
+  const pairs: { time: string; single: number; multi: number; wanTotal?: number }[] = [];
 
   const singleTests = data?.filter((t: any) => t.stream_count === 1) || [];
   const multiTests = data?.filter((t: any) => t.stream_count > 1) || [];
@@ -45,12 +45,27 @@ export function ThroughputHistory({
     const s = singleTests[i];
     const m = multiTests[i];
     const ts = s?.timestamp || m?.timestamp || "";
+    const multiSpd = m?.speed_mbps || 0;
+    const singleSpd = s?.speed_mbps || 0;
+    // Only use WAN speed from the same test — never mix single WAN with multi speed
+    // because single-stream WAN total can be lower than multi-stream measured speed.
+    // Also clamp: WAN total must be >= measured speed (it includes the test itself).
+    let wanSpeed: number | undefined;
+    if (m?.wan_speed_mbps != null) {
+      wanSpeed = Math.max(m.wan_speed_mbps, multiSpd);
+    } else if (s?.wan_speed_mbps != null && multiSpd === 0) {
+      // Only use single WAN when there's no multi test in this pair
+      wanSpeed = Math.max(s.wan_speed_mbps, singleSpd);
+    }
     pairs.push({
       time: ts.slice(11, 16),
-      single: s?.speed_mbps || 0,
-      multi: m?.speed_mbps || 0,
+      single: singleSpd,
+      multi: multiSpd,
+      ...(wanSpeed != null ? { wanTotal: Math.round(wanSpeed * 10) / 10 } : {}),
     });
   }
+
+  const hasWanData = pairs.some((p) => p.wanTotal != null);
 
   // Compute averages for reference lines
   const singleValues = pairs.map((p) => p.single).filter((v) => v > 0);
@@ -71,7 +86,7 @@ export function ThroughputHistory({
       <CardHeader>
         <CardTitle className="text-base">{label} History</CardTitle>
         <CardDescription>
-          One connection vs four simultaneous connections — {label.toLowerCase()} speed (Mbps)
+          One connection vs four simultaneous connections{hasWanData ? " vs total router traffic" : ""} — {label.toLowerCase()} speed (Mbps)
           {singleAvg != null && multiAvg != null && (
             <span className="ml-2 font-mono text-[10px]">
               avg: {singleAvg.toFixed(0)} / {multiAvg.toFixed(0)} Mbps
@@ -108,6 +123,18 @@ export function ThroughputHistory({
                   offset="95%"
                   stopColor="var(--color-multi)"
                   stopOpacity={0.1}
+                />
+              </linearGradient>
+              <linearGradient id="fillWanTotal" x1="0" y1="0" x2="0" y2="1">
+                <stop
+                  offset="5%"
+                  stopColor="var(--color-wanTotal)"
+                  stopOpacity={0.15}
+                />
+                <stop
+                  offset="95%"
+                  stopColor="var(--color-wanTotal)"
+                  stopOpacity={0.02}
                 />
               </linearGradient>
             </defs>
@@ -181,6 +208,17 @@ export function ThroughputHistory({
                   fontSize: 10,
                   fill: "var(--color-multi)",
                 }}
+              />
+            )}
+            {hasWanData && (
+              <Area
+                dataKey="wanTotal"
+                type="monotone"
+                fill="url(#fillWanTotal)"
+                stroke="var(--color-wanTotal)"
+                strokeWidth={1.5}
+                strokeDasharray="4 3"
+                connectNulls
               />
             )}
             <Area

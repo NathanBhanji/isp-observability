@@ -15,7 +15,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { THRESHOLDS, TARGET_LABELS } from "@isp/shared";
+import { THRESHOLDS, TARGET_LABELS, ISP_PLAN } from "@isp/shared";
+import { adjustedSpeed, type ThroughputTest } from "@/lib/throughput-utils";
 import { VerdictCard, type VerdictStatus } from "@/components/dashboard/verdict-card";
 import { interpretCorrelation, HOP_LABELS, formatDurationMs } from "@/lib/labels";
 import {
@@ -72,8 +73,13 @@ export default async function EvidencePage({
     else periodLabel = pluralize(hours, "hour");
   }
 
-  // Verdict
+  // Verdict — use adjusted values when available
   const hasThrottling = evidence?.throughputPolicing?.policingRatio > THRESHOLDS.policingRatio;
+  const adjPolicingRatio = evidence?.throughputPolicing?.adjustedPolicingRatio;
+  const adjMultiDlMean = evidence?.throughputPolicing?.adjustedMultiDownloadMean;
+  const adjMultiUlMean = evidence?.throughputPolicing?.adjustedMultiUploadMean;
+  const rawMultiDlMean = evidence?.throughputPolicing?.multiDownloadMean;
+  const hasWanContext = adjMultiDlMean != null && adjMultiDlMean !== rawMultiDlMean;
   const hasHighLoss = evidence?.packetLoss?.perTarget &&
     Object.values(evidence.packetLoss.perTarget).some((t: any) => t.avgLoss > THRESHOLDS.maxAcceptableLoss);
   const hasOutages = evidence?.outageSummary?.count > 0;
@@ -89,13 +95,16 @@ export default async function EvidencePage({
     poor: "Evidence of ISP performance problems in collected data",
     critical: "Multiple problems confirmed by measurement data",
   };
+  const wanAdjNote = hasWanContext
+    ? ` WAN-adjusted ratio: ${adjPolicingRatio?.toFixed(2)}x.`
+    : "";
   const verdictDescriptions: Record<VerdictStatus, string> = {
-    healthy: `All metrics within normal range across ${periodLabel} of data collection.`,
+    healthy: `All metrics within normal range across ${periodLabel} of data collection.${hasWanContext ? ` ISP delivered avg ${adjMultiDlMean?.toFixed(0)} Mbps (accounting for household traffic).` : ""}`,
     degraded: `Some connectivity issues found over ${periodLabel}.`,
     poor: hasThrottling
-      ? `Speed throttling confirmed — ${evidence?.throughputPolicing?.policingRatio?.toFixed(2)}x difference between single and multi-connection speeds across ${evidence?.throughputPolicing?.downloadTests || 0} tests.`
+      ? `Speed throttling confirmed — ${evidence?.throughputPolicing?.policingRatio?.toFixed(2)}x raw difference between single and multi-connection speeds across ${evidence?.throughputPolicing?.downloadTests || 0} tests.${wanAdjNote}`
       : `Elevated packet loss detected on some network paths.`,
-    critical: `Speed throttling (${evidence?.throughputPolicing?.policingRatio?.toFixed(2)}x) and ${evidence?.outageSummary?.count} connectivity drop${evidence?.outageSummary?.count > 1 ? "s" : ""} confirmed in measurement data.`,
+    critical: `Speed throttling (${evidence?.throughputPolicing?.policingRatio?.toFixed(2)}x raw${adjPolicingRatio != null ? `, ${adjPolicingRatio.toFixed(2)}x adjusted` : ""}) and ${evidence?.outageSummary?.count} connectivity drop${evidence?.outageSummary?.count > 1 ? "s" : ""} confirmed in measurement data.`,
   };
 
   // Compute throughput percentiles from history
@@ -108,6 +117,12 @@ export default async function EvidencePage({
   const dlSingleSpeeds = dlSingle.map((t: any) => t.speed_mbps).sort((a: number, b: number) => a - b);
   const ulMultiSpeeds = ulMulti.map((t: any) => t.speed_mbps).sort((a: number, b: number) => a - b);
   const ulSingleSpeeds = ulSingle.map((t: any) => t.speed_mbps).sort((a: number, b: number) => a - b);
+
+  // WAN-adjusted speeds
+  const adjDlMultiSpeeds = (dlMulti as ThroughputTest[]).map(adjustedSpeed).sort((a, b) => a - b);
+  const adjUlMultiSpeeds = (ulMulti as ThroughputTest[]).map(adjustedSpeed).sort((a, b) => a - b);
+  const hasAdjData = adjDlMultiSpeeds.length > 0 &&
+    adjDlMultiSpeeds.some((v, i) => Math.abs(v - dlMultiSpeeds[i]) > 0.1);
 
   // Compute per-target latency stats
   const targetIds = ["gateway", "aggregation", "bcube", "google", "cloudflare"];
@@ -283,6 +298,9 @@ export default async function EvidencePage({
                   <TableRow className="text-[11px]">
                     <TableHead className="h-7 px-2">Metric</TableHead>
                     <TableHead className="h-7 px-2 text-right">Multi ({dlMulti.length})</TableHead>
+                    {hasAdjData && (
+                      <TableHead className="h-7 px-2 text-right text-primary/70">Adjusted</TableHead>
+                    )}
                     <TableHead className="h-7 px-2 text-right">Single ({dlSingle.length})</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -299,6 +317,11 @@ export default async function EvidencePage({
                       <TableCell className="px-2 py-1 text-right">
                         {dlMultiSpeeds.length > 0 ? `${percentile(dlMultiSpeeds, row.pMulti).toFixed(0)} Mbps` : "—"}
                       </TableCell>
+                      {hasAdjData && (
+                        <TableCell className="px-2 py-1 text-right text-primary/70">
+                          {adjDlMultiSpeeds.length > 0 ? `${percentile(adjDlMultiSpeeds, row.pMulti).toFixed(0)} Mbps` : "—"}
+                        </TableCell>
+                      )}
                       <TableCell className="px-2 py-1 text-right text-muted-foreground">
                         {dlSingleSpeeds.length > 0 ? `${percentile(dlSingleSpeeds, row.pSingle).toFixed(0)} Mbps` : "—"}
                       </TableCell>
@@ -309,7 +332,12 @@ export default async function EvidencePage({
               {hasThrottling && (
                 <div className="text-[11px] text-verdict-poor flex items-center gap-1">
                   <TrendingDown className="h-3 w-3" />
-                  Throttle ratio: {evidence?.throughputPolicing?.policingRatio?.toFixed(2)}x
+                  Throttle ratio: {evidence?.throughputPolicing?.policingRatio?.toFixed(2)}x raw
+                  {adjPolicingRatio != null && (
+                    <span className="text-muted-foreground ml-1">
+                      ({adjPolicingRatio.toFixed(2)}x WAN-adjusted)
+                    </span>
+                  )}
                 </div>
               )}
             </div>
@@ -322,6 +350,9 @@ export default async function EvidencePage({
                   <TableRow className="text-[11px]">
                     <TableHead className="h-7 px-2">Metric</TableHead>
                     <TableHead className="h-7 px-2 text-right">Multi ({ulMulti.length})</TableHead>
+                    {hasAdjData && (
+                      <TableHead className="h-7 px-2 text-right text-primary/70">Adjusted</TableHead>
+                    )}
                     <TableHead className="h-7 px-2 text-right">Single ({ulSingle.length})</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -338,6 +369,11 @@ export default async function EvidencePage({
                       <TableCell className="px-2 py-1 text-right">
                         {ulMultiSpeeds.length > 0 ? `${percentile(ulMultiSpeeds, row.p).toFixed(0)} Mbps` : "—"}
                       </TableCell>
+                      {hasAdjData && (
+                        <TableCell className="px-2 py-1 text-right text-primary/70">
+                          {adjUlMultiSpeeds.length > 0 ? `${percentile(adjUlMultiSpeeds, row.p).toFixed(0)} Mbps` : "—"}
+                        </TableCell>
+                      )}
                       <TableCell className="px-2 py-1 text-right text-muted-foreground">
                         {ulSingleSpeeds.length > 0 ? `${percentile(ulSingleSpeeds, row.p).toFixed(0)} Mbps` : "—"}
                       </TableCell>
@@ -360,12 +396,15 @@ export default async function EvidencePage({
               <div className="text-[11px] text-muted-foreground mb-2">Visual Comparison (Median)</div>
               {[
                 { label: "DL Multi", value: percentile(dlMultiSpeeds, 50), color: "bg-chart-1" },
+                ...(hasAdjData ? [{ label: "DL Adjusted", value: percentile(adjDlMultiSpeeds, 50), color: "bg-chart-1 opacity-60 border border-dashed border-primary/40" }] : []),
                 { label: "DL Single", value: percentile(dlSingleSpeeds, 50), color: "bg-chart-1/50" },
                 { label: "UL Multi", value: percentile(ulMultiSpeeds, 50), color: "bg-chart-4" },
+                ...(hasAdjData ? [{ label: "UL Adjusted", value: percentile(adjUlMultiSpeeds, 50), color: "bg-chart-4 opacity-60 border border-dashed border-chart-4/40" }] : []),
                 { label: "UL Single", value: percentile(ulSingleSpeeds, 50), color: "bg-chart-4/50" },
               ].filter((b) => b.value > 0).map((bar) => {
                 const maxVal = Math.max(
                   percentile(dlMultiSpeeds, 50),
+                  ...(hasAdjData ? [percentile(adjDlMultiSpeeds, 50)] : []),
                   percentile(dlSingleSpeeds, 50),
                   percentile(ulMultiSpeeds, 50),
                   percentile(ulSingleSpeeds, 50),
@@ -384,6 +423,11 @@ export default async function EvidencePage({
                   </div>
                 );
               })}
+              {hasAdjData && (
+                <div className="text-[10px] text-muted-foreground mt-1">
+                  &quot;Adjusted&quot; = total router throughput (UPnP), accounting for other household devices
+                </div>
+              )}
             </div>
           )}
         </CardContent>

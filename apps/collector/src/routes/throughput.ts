@@ -3,59 +3,85 @@ import { getDb } from "../db";
 
 const throughput = new Hono();
 
+/** Compute WAN-adjusted speed fields for a test row */
+function enrichWithWan(row: any): any {
+  if (!row) return row;
+  const wanDelta = row.direction === "upload" ? row.wan_tx_delta : row.wan_rx_delta;
+  const wanSpeedMbps =
+    wanDelta != null && row.duration_ms > 0
+      ? Math.round(((wanDelta * 8) / (row.duration_ms / 1000) / 1_000_000) * 100) / 100
+      : null;
+  const adjustedSpeedMbps =
+    wanSpeedMbps != null
+      ? Math.round(Math.max(row.speed_mbps, wanSpeedMbps) * 100) / 100
+      : row.speed_mbps;
+  return { ...row, wan_speed_mbps: wanSpeedMbps, adjusted_speed_mbps: adjustedSpeedMbps };
+}
+
 /** Latest single + multi stream tests (download + upload) */
 throughput.get("/latest", (c) => {
   const db = getDb();
 
   // Download latest
-  const dlSingle = db
+  const dlSingle = enrichWithWan(db
     .prepare(
       `SELECT * FROM throughput_tests
        WHERE stream_count = 1 AND direction = 'download'
        ORDER BY id DESC LIMIT 1`
     )
-    .get();
+    .get());
 
-  const dlMulti = db
+  const dlMulti = enrichWithWan(db
     .prepare(
       `SELECT * FROM throughput_tests
        WHERE stream_count > 1 AND direction = 'download'
        ORDER BY id DESC LIMIT 1`
     )
-    .get();
+    .get());
 
-  const dlSingleSpeed = (dlSingle as any)?.speed_mbps || 0;
-  const dlMultiSpeed = (dlMulti as any)?.speed_mbps || 0;
+  const dlSingleSpeed = dlSingle?.speed_mbps || 0;
+  const dlMultiSpeed = dlMulti?.speed_mbps || 0;
   const dlRatio = dlSingleSpeed > 0 ? Math.round((dlMultiSpeed / dlSingleSpeed) * 100) / 100 : null;
 
+  // WAN-adjusted ratio for download
+  const dlAdjSingleSpeed = dlSingle?.adjusted_speed_mbps || 0;
+  const dlAdjMultiSpeed = dlMulti?.adjusted_speed_mbps || 0;
+  const dlAdjustedRatio = dlAdjSingleSpeed > 0 ? Math.round((dlAdjMultiSpeed / dlAdjSingleSpeed) * 100) / 100 : null;
+
   // Upload latest
-  const ulSingle = db
+  const ulSingle = enrichWithWan(db
     .prepare(
       `SELECT * FROM throughput_tests
        WHERE stream_count = 1 AND direction = 'upload'
        ORDER BY id DESC LIMIT 1`
     )
-    .get();
+    .get());
 
-  const ulMulti = db
+  const ulMulti = enrichWithWan(db
     .prepare(
       `SELECT * FROM throughput_tests
        WHERE stream_count > 1 AND direction = 'upload'
        ORDER BY id DESC LIMIT 1`
     )
-    .get();
+    .get());
 
-  const ulSingleSpeed = (ulSingle as any)?.speed_mbps || 0;
-  const ulMultiSpeed = (ulMulti as any)?.speed_mbps || 0;
+  const ulSingleSpeed = ulSingle?.speed_mbps || 0;
+  const ulMultiSpeed = ulMulti?.speed_mbps || 0;
   const ulRatio = ulSingleSpeed > 0 ? Math.round((ulMultiSpeed / ulSingleSpeed) * 100) / 100 : null;
+
+  // WAN-adjusted ratio for upload
+  const ulAdjSingleSpeed = ulSingle?.adjusted_speed_mbps || 0;
+  const ulAdjMultiSpeed = ulMulti?.adjusted_speed_mbps || 0;
+  const ulAdjustedRatio = ulAdjSingleSpeed > 0 ? Math.round((ulAdjMultiSpeed / ulAdjSingleSpeed) * 100) / 100 : null;
 
   // Backward-compat: single/multi/ratio still point to download
   return c.json({
     single: dlSingle,
     multi: dlMulti,
     ratio: dlRatio,
-    download: { single: dlSingle, multi: dlMulti, ratio: dlRatio },
-    upload: { single: ulSingle, multi: ulMulti, ratio: ulRatio },
+    adjustedRatio: dlAdjustedRatio,
+    download: { single: dlSingle, multi: dlMulti, ratio: dlRatio, adjustedRatio: dlAdjustedRatio },
+    upload: { single: ulSingle, multi: ulMulti, ratio: ulRatio, adjustedRatio: ulAdjustedRatio },
   });
 });
 

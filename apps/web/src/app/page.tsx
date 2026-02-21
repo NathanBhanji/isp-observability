@@ -45,12 +45,22 @@ export default async function DashboardPage({
    // Use the third target (ISP Backbone) for the primary response time KPI
   const hop3 = (latestPings || []).find((p: any) => p.target_id === PING_TARGETS[2].id);
 
-  // Throughput
+  // Throughput — raw measured speeds
   const multiDlSpeed = throughputLatest?.download?.multi?.speed_mbps ?? throughputLatest?.multi?.speed_mbps;
   const singleDlSpeed = throughputLatest?.download?.single?.speed_mbps ?? throughputLatest?.single?.speed_mbps;
   const ratio = throughputLatest?.download?.ratio ?? throughputLatest?.ratio;
   const multiUlSpeed = throughputLatest?.upload?.multi?.speed_mbps ?? null;
   const isPolicied = ratio != null && ratio > THRESHOLDS.policingRatio;
+
+  // WAN-adjusted speeds (what ISP actually delivered to router)
+  const adjMultiDlSpeed = throughputLatest?.download?.multi?.adjusted_speed_mbps ?? multiDlSpeed;
+  const adjSingleDlSpeed = throughputLatest?.download?.single?.adjusted_speed_mbps ?? singleDlSpeed;
+  const adjRatio = throughputLatest?.download?.adjustedRatio ?? ratio;
+  const adjMultiUlSpeed = throughputLatest?.upload?.multi?.adjusted_speed_mbps ?? multiUlSpeed;
+  const hasWanData = adjMultiDlSpeed != null && adjMultiDlSpeed !== multiDlSpeed;
+
+  // Use adjusted speed for plan % and "below plan" badge
+  const effectiveDlSpeed = adjMultiDlSpeed ?? multiDlSpeed;
 
   // Outages
   const outageCount = outageSummary?.totalOutages ?? 0;
@@ -72,15 +82,16 @@ export default async function DashboardPage({
     poor: "Your internet performance is degraded",
     critical: "Your internet has serious problems",
   };
-  const dlPlanPct = multiDlSpeed != null ? (multiDlSpeed / ISP_PLAN.avgPeakDown * 100).toFixed(0) : null;
+  const dlPlanPct = effectiveDlSpeed != null ? (effectiveDlSpeed / ISP_PLAN.avgPeakDown * 100).toFixed(0) : null;
+  const wanNote = hasWanData ? ` (ISP delivered ${adjMultiDlSpeed?.toFixed(0)} Mbps to router)` : "";
   const verdictDescriptions: Record<VerdictStatus, string> = {
     healthy: `Speed, latency, and stability are all within normal range.${dlPlanPct ? ` Currently ${dlPlanPct}% of your ${ISP_PLAN.tier} plan.` : ""}`,
     degraded: "Response times are slightly elevated. This may cause occasional slowness in video calls or gaming.",
     poor: isPolicied
-      ? `Your ISP appears to be throttling individual download connections.${dlPlanPct ? ` Currently ${dlPlanPct}% of your ${ISP_PLAN.tier} plan.` : ""} See the Throughput page for details.`
+      ? `Your ISP appears to be throttling individual download connections (${ratio?.toFixed(2)}x raw${adjRatio != null && adjRatio !== ratio ? `, ${adjRatio.toFixed(2)}x adjusted` : ""}).${dlPlanPct ? ` Currently ${dlPlanPct}% of your ${ISP_PLAN.tier} plan.` : ""} See the Throughput page for details.`
       : "Some performance metrics are outside normal range. Check the details below.",
     critical: isPolicied
-      ? `Speed throttling detected${outageCount > 0 ? ` and ${outageCount} connectivity drop${outageCount > 1 ? "s" : ""}` : ""}.${dlPlanPct ? ` Currently ${dlPlanPct}% of your ${ISP_PLAN.tier} plan.` : ""}`
+      ? `Speed throttling detected${outageCount > 0 ? ` and ${outageCount} connectivity drop${outageCount > 1 ? "s" : ""}` : ""}.${dlPlanPct ? ` Currently ${dlPlanPct}% of your ${ISP_PLAN.tier} plan.` : ""}${wanNote}`
       : `${outageCount} connectivity drop${outageCount > 1 ? "s" : ""} detected in the selected time period.`,
   };
 
@@ -116,7 +127,9 @@ export default async function DashboardPage({
             {
               label: "Download",
               value: multiDlSpeed != null ? `${multiDlSpeed.toFixed(0)} Mbps` : "N/A",
-              subValue: singleDlSpeed != null ? `Single: ${singleDlSpeed.toFixed(0)} Mbps` : undefined,
+              subValue: hasWanData
+                ? `ISP: ${adjMultiDlSpeed?.toFixed(0)} Mbps`
+                : singleDlSpeed != null ? `Single: ${singleDlSpeed.toFixed(0)} Mbps` : undefined,
             },
             {
               label: "Response Time",
@@ -138,7 +151,7 @@ export default async function DashboardPage({
             title="Speed Throttling Detected"
             description={`Single connections are capped at ${singleDlSpeed?.toFixed(0)} Mbps, but ${
               multiDlSpeed?.toFixed(0)
-            } Mbps is achievable with multiple connections (${ratio?.toFixed(2)}x ratio).`}
+            } Mbps is achievable with multiple connections (${ratio?.toFixed(2)}x raw ratio${adjRatio != null && adjRatio !== ratio ? `, ${adjRatio.toFixed(2)}x WAN-adjusted` : ""}).`}
             action="View detailed evidence"
             actionHref="/evidence"
             items={[
@@ -153,17 +166,19 @@ export default async function DashboardPage({
           <KpiCard
             title="Speed"
             value={multiDlSpeed != null ? `${multiDlSpeed.toFixed(0)} Mbps` : "N/A"}
-            subtitle={multiDlSpeed != null
-              ? `${(multiDlSpeed / ISP_PLAN.avgPeakDown * 100).toFixed(0)}% of ${ISP_PLAN.tier} plan${multiUlSpeed != null ? ` · Upload: ${multiUlSpeed.toFixed(0)} Mbps` : ""}`
+            subtitle={effectiveDlSpeed != null
+              ? `${(effectiveDlSpeed / ISP_PLAN.avgPeakDown * 100).toFixed(0)}% of ${ISP_PLAN.tier} plan${adjMultiUlSpeed != null ? ` · Upload: ${(adjMultiUlSpeed ?? multiUlSpeed)?.toFixed(0)} Mbps` : multiUlSpeed != null ? ` · Upload: ${multiUlSpeed.toFixed(0)} Mbps` : ""}`
               : "Download (multi-stream)"}
             badge={
               isPolicied
                 ? { text: "THROTTLED", variant: "destructive" }
-                : multiDlSpeed != null && multiDlSpeed < ISP_PLAN.minimumDown
+                : effectiveDlSpeed != null && effectiveDlSpeed < ISP_PLAN.minimumDown
                   ? { text: "BELOW PLAN", variant: "destructive" }
-                  : multiDlSpeed != null
-                    ? { text: "OK", variant: "secondary" }
-                    : undefined
+                  : hasWanData && multiDlSpeed != null && multiDlSpeed < ISP_PLAN.minimumDown
+                    ? { text: "HOME TRAFFIC", variant: "outline" }
+                    : multiDlSpeed != null
+                      ? { text: "OK", variant: "secondary" }
+                      : undefined
             }
           />
           <KpiCard

@@ -3,6 +3,7 @@ import type { Collector } from "../scheduler";
 import { getDb } from "../db";
 import { runOoklaTest, runOoklaUploadTest } from "../lib/speedtest";
 import { pearsonCorrelation } from "../lib/stats";
+import { getWanTrafficCounters, counterDelta } from "../lib/upnp";
 import { randomUUIDv7 } from "bun";
 
 /**
@@ -23,8 +24,8 @@ export class ThroughputCollector implements Collector {
 
     const insertTest = db.prepare(`
       INSERT INTO throughput_tests (
-        timestamp, stream_count, bytes_transferred, duration_ms, speed_mbps, source_url, source_type, direction, idle_latency_ms
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        timestamp, stream_count, bytes_transferred, duration_ms, speed_mbps, source_url, source_type, direction, idle_latency_ms, wan_rx_delta, wan_tx_delta
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const insertTimeseries = db.prepare(`
@@ -98,6 +99,9 @@ export class ThroughputCollector implements Collector {
     try {
       console.log("[throughput] Starting single-stream Ookla test (with latency probes)...");
       const singlePingSampleStart = correlationSamples.length;
+
+      // Snapshot WAN counters before the test
+      const wanBefore = await getWanTrafficCounters();
       const pingPromise = startPinging();
 
       const single = await runOoklaTest(1);
@@ -107,6 +111,11 @@ export class ThroughputCollector implements Collector {
       stopPinging();
       await pingPromise;
 
+      // Snapshot WAN counters after the test
+      const wanAfter = await getWanTrafficCounters();
+      const rxDelta = counterDelta(wanBefore.bytesReceived, wanAfter.bytesReceived);
+      const txDelta = counterDelta(wanBefore.bytesSent, wanAfter.bytesSent);
+
       // Retroactively tag all ping samples from this test with the measured speed
       for (let i = singlePingSampleStart; i < correlationSamples.length; i++) {
         correlationSamples[i].throughputMbps = single.speedMbps;
@@ -115,7 +124,7 @@ export class ThroughputCollector implements Collector {
       const singleResult = insertTest.run(
         timestamp, 1, single.bytesDownloaded, single.durationMs,
         single.speedMbps, `ookla://${single.serverHost}`, "ethernet", "download",
-        single.idleLatencyMs ?? null
+        single.idleLatencyMs ?? null, rxDelta, txDelta
       );
       const singleTestId = Number(singleResult.lastInsertRowid);
 
@@ -125,10 +134,12 @@ export class ThroughputCollector implements Collector {
         }
       })();
 
+      const bgRx = rxDelta !== null ? rxDelta - single.bytesDownloaded : null;
       console.log(
         `[throughput] Single-stream: ${single.speedMbps} Mbps ` +
           `(${(single.bytesDownloaded / 1024 / 1024).toFixed(1)} MB in ${(single.durationMs / 1000).toFixed(1)}s) ` +
-          `via ${single.server}`
+          `via ${single.server}` +
+          (bgRx !== null ? ` | WAN background: ${(bgRx / 1024 / 1024).toFixed(1)} MB rx` : "")
       );
     } catch (e) {
       stopPinging();
@@ -143,6 +154,9 @@ export class ThroughputCollector implements Collector {
     try {
       console.log(`[throughput] Starting ${MULTI_STREAM_COUNT}-stream Ookla test (with latency probes)...`);
       const multiPingSampleStart = correlationSamples.length;
+
+      // Snapshot WAN counters before the test
+      const wanBeforeMulti = await getWanTrafficCounters();
       const pingPromise = startPinging();
 
       const multi = await runOoklaTest(MULTI_STREAM_COUNT);
@@ -151,6 +165,11 @@ export class ThroughputCollector implements Collector {
       currentThroughput = multi.speedMbps;
       stopPinging();
       await pingPromise;
+
+      // Snapshot WAN counters after the test
+      const wanAfterMulti = await getWanTrafficCounters();
+      const rxDeltaMulti = counterDelta(wanBeforeMulti.bytesReceived, wanAfterMulti.bytesReceived);
+      const txDeltaMulti = counterDelta(wanBeforeMulti.bytesSent, wanAfterMulti.bytesSent);
 
       // Retroactively tag all ping samples from this test with the measured speed
       for (let i = multiPingSampleStart; i < correlationSamples.length; i++) {
@@ -161,7 +180,7 @@ export class ThroughputCollector implements Collector {
       const multiResult = insertTest.run(
         multiTimestamp, MULTI_STREAM_COUNT, multi.bytesDownloaded,
         multi.durationMs, multi.speedMbps, `ookla://${multi.serverHost}`, "ethernet", "download",
-        multi.idleLatencyMs ?? null
+        multi.idleLatencyMs ?? null, rxDeltaMulti, txDeltaMulti
       );
       const multiTestId = Number(multiResult.lastInsertRowid);
 
@@ -171,10 +190,12 @@ export class ThroughputCollector implements Collector {
         }
       })();
 
+      const bgRxMulti = rxDeltaMulti !== null ? rxDeltaMulti - multi.bytesDownloaded : null;
       console.log(
         `[throughput] Multi-stream (${MULTI_STREAM_COUNT}x): ${multi.speedMbps} Mbps ` +
           `(${(multi.bytesDownloaded / 1024 / 1024).toFixed(1)} MB in ${(multi.durationMs / 1000).toFixed(1)}s) ` +
-          `via ${multi.server}`
+          `via ${multi.server}` +
+          (bgRxMulti !== null ? ` | WAN background: ${(bgRxMulti / 1024 / 1024).toFixed(1)} MB rx` : "")
       );
     } catch (e) {
       stopPinging();
@@ -220,13 +241,23 @@ export class ThroughputCollector implements Collector {
     // Single-stream upload
     try {
       console.log("[throughput] Starting single-stream upload test...");
+
+      // Snapshot WAN counters before upload
+      const wanBeforeUl = await getWanTrafficCounters();
+
       const upload = await runOoklaUploadTest(1);
+
+      // Snapshot WAN counters after upload
+      const wanAfterUl = await getWanTrafficCounters();
+      const rxDeltaUl = counterDelta(wanBeforeUl.bytesReceived, wanAfterUl.bytesReceived);
+      const txDeltaUl = counterDelta(wanBeforeUl.bytesSent, wanAfterUl.bytesSent);
+
       const ulTimestamp = new Date().toISOString();
 
       const ulResult = insertTest.run(
         ulTimestamp, 1, upload.bytesUploaded, upload.durationMs,
         upload.speedMbps, `ookla://${upload.serverHost}`, "ethernet", "upload",
-        upload.idleLatencyMs ?? null
+        upload.idleLatencyMs ?? null, rxDeltaUl, txDeltaUl
       );
       const ulTestId = Number(ulResult.lastInsertRowid);
 
@@ -236,9 +267,11 @@ export class ThroughputCollector implements Collector {
         }
       })();
 
+      const bgTx = txDeltaUl !== null ? txDeltaUl - upload.bytesUploaded : null;
       console.log(
         `[throughput] Upload single-stream: ${upload.speedMbps} Mbps ` +
-          `(${(upload.bytesUploaded / 1024 / 1024).toFixed(1)} MB in ${(upload.durationMs / 1000).toFixed(1)}s)`
+          `(${(upload.bytesUploaded / 1024 / 1024).toFixed(1)} MB in ${(upload.durationMs / 1000).toFixed(1)}s)` +
+          (bgTx !== null ? ` | WAN background: ${(bgTx / 1024 / 1024).toFixed(1)} MB tx` : "")
       );
     } catch (e) {
       console.error("[throughput] Upload single-stream failed:", (e as Error).message);
@@ -250,14 +283,24 @@ export class ThroughputCollector implements Collector {
     // Multi-stream upload
     try {
       console.log(`[throughput] Starting ${MULTI_STREAM_COUNT}-stream upload test...`);
+
+      // Snapshot WAN counters before upload
+      const wanBeforeUlMulti = await getWanTrafficCounters();
+
       const uploadMulti = await runOoklaUploadTest(MULTI_STREAM_COUNT);
+
+      // Snapshot WAN counters after upload
+      const wanAfterUlMulti = await getWanTrafficCounters();
+      const rxDeltaUlMulti = counterDelta(wanBeforeUlMulti.bytesReceived, wanAfterUlMulti.bytesReceived);
+      const txDeltaUlMulti = counterDelta(wanBeforeUlMulti.bytesSent, wanAfterUlMulti.bytesSent);
+
       const ulMultiTimestamp = new Date().toISOString();
 
       const ulMultiResult = insertTest.run(
         ulMultiTimestamp, MULTI_STREAM_COUNT, uploadMulti.bytesUploaded,
         uploadMulti.durationMs, uploadMulti.speedMbps, `ookla://${uploadMulti.serverHost}`,
         "ethernet", "upload",
-        uploadMulti.idleLatencyMs ?? null
+        uploadMulti.idleLatencyMs ?? null, rxDeltaUlMulti, txDeltaUlMulti
       );
       const ulMultiTestId = Number(ulMultiResult.lastInsertRowid);
 
@@ -267,9 +310,11 @@ export class ThroughputCollector implements Collector {
         }
       })();
 
+      const bgTxMulti = txDeltaUlMulti !== null ? txDeltaUlMulti - uploadMulti.bytesUploaded : null;
       console.log(
         `[throughput] Upload multi-stream (${MULTI_STREAM_COUNT}x): ${uploadMulti.speedMbps} Mbps ` +
-          `(${(uploadMulti.bytesUploaded / 1024 / 1024).toFixed(1)} MB in ${(uploadMulti.durationMs / 1000).toFixed(1)}s)`
+          `(${(uploadMulti.bytesUploaded / 1024 / 1024).toFixed(1)} MB in ${(uploadMulti.durationMs / 1000).toFixed(1)}s)` +
+          (bgTxMulti !== null ? ` | WAN background: ${(bgTxMulti / 1024 / 1024).toFixed(1)} MB tx` : "")
       );
     } catch (e) {
       console.error("[throughput] Upload multi-stream failed:", (e as Error).message);

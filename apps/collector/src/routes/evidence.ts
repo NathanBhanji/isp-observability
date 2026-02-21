@@ -77,18 +77,70 @@ evidence.get("/summary", (c) => {
       )
       .get(...timeParams()) as any;
 
+    // WAN-adjusted averages: MAX(speed_mbps, wan_speed) where wan_speed = wan_delta * 8 / (duration_ms/1000) / 1e6
+    const adjMultiDlAvg = db
+      .prepare(
+        `SELECT AVG(
+           CASE
+             WHEN wan_rx_delta IS NOT NULL AND duration_ms > 0
+               THEN MAX(speed_mbps, (wan_rx_delta * 8.0) / (duration_ms / 1000.0) / 1000000.0)
+             ELSE speed_mbps
+           END
+         ) as avg_speed
+         FROM throughput_tests
+         WHERE stream_count > 1 AND direction = 'download' ${timeFilter()}`
+      )
+      .get(...timeParams()) as any;
+
+    const adjMultiUlAvg = db
+      .prepare(
+        `SELECT AVG(
+           CASE
+             WHEN wan_tx_delta IS NOT NULL AND duration_ms > 0
+               THEN MAX(speed_mbps, (wan_tx_delta * 8.0) / (duration_ms / 1000.0) / 1000000.0)
+             ELSE speed_mbps
+           END
+         ) as avg_speed
+         FROM throughput_tests
+         WHERE stream_count > 1 AND direction = 'upload' ${timeFilter()}`
+      )
+      .get(...timeParams()) as any;
+
+    const adjSingleDlAvg = db
+      .prepare(
+        `SELECT AVG(
+           CASE
+             WHEN wan_rx_delta IS NOT NULL AND duration_ms > 0
+               THEN MAX(speed_mbps, (wan_rx_delta * 8.0) / (duration_ms / 1000.0) / 1000000.0)
+             ELSE speed_mbps
+           END
+         ) as avg_speed
+         FROM throughput_tests
+         WHERE stream_count = 1 AND direction = 'download' ${timeFilter()}`
+      )
+      .get(...timeParams()) as any;
+
     const multiDlSpeed = multiDlAvg?.avg_speed ?? null;
     const multiUlSpeed = multiUlAvg?.avg_speed ?? null;
     const singleDlSpeed = singleDlAvg?.avg_speed ?? null;
+
+    const adjMultiDlSpeed = adjMultiDlAvg?.avg_speed ?? null;
+    const adjMultiUlSpeed = adjMultiUlAvg?.avg_speed ?? null;
+    const adjSingleDlSpeed = adjSingleDlAvg?.avg_speed ?? null;
 
     if (multiDlSpeed != null && multiUlSpeed != null) {
       const dlUlRatio = multiUlSpeed > 0
         ? Math.round((multiDlSpeed / multiUlSpeed) * 100) / 100
         : null;
 
-      // Single/multi policing ratio (download only)
+      // Single/multi policing ratio (download only) — raw
       const policingRatio = singleDlSpeed != null && singleDlSpeed > 0
         ? Math.round((multiDlSpeed / singleDlSpeed) * 100) / 100
+        : null;
+
+      // WAN-adjusted policing ratio
+      const adjustedPolicingRatio = adjSingleDlSpeed != null && adjSingleDlSpeed > 0
+        ? Math.round((adjMultiDlSpeed! / adjSingleDlSpeed) * 100) / 100
         : null;
 
       // Decay detection on latest single-stream download
@@ -125,6 +177,11 @@ evidence.get("/summary", (c) => {
         dlUlRatio,
         singleStreamMean: singleDlSpeed != null ? Math.round(singleDlSpeed * 100) / 100 : null,
         policingRatio,
+        // WAN-adjusted fields
+        adjustedMultiDownloadMean: adjMultiDlSpeed != null ? Math.round(adjMultiDlSpeed * 100) / 100 : null,
+        adjustedMultiUploadMean: adjMultiUlSpeed != null ? Math.round(adjMultiUlSpeed * 100) / 100 : null,
+        adjustedSingleStreamMean: adjSingleDlSpeed != null ? Math.round(adjSingleDlSpeed * 100) / 100 : null,
+        adjustedPolicingRatio,
         downloadTests: multiDlAvg.cnt ?? 0,
         uploadTests: multiUlAvg.cnt ?? 0,
         decayDetected,

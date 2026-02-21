@@ -218,6 +218,62 @@ function extractXmlValue(xml: string, tagName: string): string | null {
 
 // ── Public API ───────────────────────────────────────────────
 
+export interface WanTrafficCounters {
+  bytesReceived: number | null;
+  bytesSent: number | null;
+}
+
+/** Maximum value for UPnP 32-bit unsigned counters before they wrap. */
+export const UPNP_COUNTER_MAX = 4_294_967_295; // 2^32 - 1
+
+/**
+ * Compute the delta between two 32-bit unsigned counter readings,
+ * handling a single wrap-around correctly. Returns null if either is null.
+ */
+export function counterDelta(before: number | null, after: number | null): number | null {
+  if (before === null || after === null) return null;
+  if (after >= before) return after - before;
+  // Counter wrapped — assume exactly one wrap
+  return (UPNP_COUNTER_MAX - before) + after + 1;
+}
+
+/**
+ * Lightweight fetch of just the WAN byte counters (2 SOAP calls).
+ * Much faster than the full `queryRouterStatus()` which makes 5 calls.
+ * Used for snapshotting traffic before/after speed tests.
+ */
+export async function getWanTrafficCounters(): Promise<WanTrafficCounters> {
+  const result: WanTrafficCounters = { bytesReceived: null, bytesSent: null };
+
+  const services = await getServices();
+  if (!services || !services.wanCommonControlUrl) return result;
+
+  const { baseUrl, wanCommonControlUrl } = services;
+  const svc = "urn:schemas-upnp-org:service:WANCommonInterfaceConfig:1";
+
+  // Run both SOAP calls in parallel for speed
+  const [rxResult, txResult] = await Promise.allSettled([
+    soapRequest(baseUrl, wanCommonControlUrl, svc, "GetTotalBytesReceived"),
+    soapRequest(baseUrl, wanCommonControlUrl, svc, "GetTotalBytesSent"),
+  ]);
+
+  if (rxResult.status === "fulfilled") {
+    const rx = extractXmlValue(rxResult.value, "NewTotalBytesReceived");
+    if (rx) result.bytesReceived = parseInt(rx, 10);
+  } else {
+    console.warn("[upnp] getWanTrafficCounters RX failed:", rxResult.reason?.message);
+  }
+
+  if (txResult.status === "fulfilled") {
+    const tx = extractXmlValue(txResult.value, "NewTotalBytesSent");
+    if (tx) result.bytesSent = parseInt(tx, 10);
+  } else {
+    console.warn("[upnp] getWanTrafficCounters TX failed:", txResult.reason?.message);
+  }
+
+  return result;
+}
+
 /**
  * Query the router's UPnP status via auto-discovered SOAP endpoints.
  * Runs SSDP discovery on first call, then caches the service URLs.

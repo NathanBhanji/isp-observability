@@ -21,6 +21,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  adjustedSpeed,
+  adjustedMedian,
+  verdictSoftening,
+  type ThroughputTest,
+} from "@/lib/throughput-utils";
 
 export const metadata: Metadata = { title: "Throughput Analysis" };
 
@@ -48,12 +54,23 @@ export default async function ThroughputPage({
   const latestDlMulti = latest?.download?.multi?.speed_mbps ?? latest?.multi?.speed_mbps;
   const latestUlMulti = latest?.upload?.multi?.speed_mbps;
 
+  // Enrich history with WAN speed (total router throughput during each test)
+  // For download tests: wan_rx_delta → total download throughput at router
+  // For upload tests: wan_tx_delta → total upload throughput at router
+  const enrichedHistory = (history || []).map((t: any) => {
+    const wanDelta = t.direction === "upload" ? t.wan_tx_delta : t.wan_rx_delta;
+    const wanSpeedMbps = wanDelta != null && t.duration_ms > 0
+      ? (wanDelta * 8) / (t.duration_ms / 1000) / 1_000_000
+      : null;
+    return { ...t, wan_speed_mbps: wanSpeedMbps };
+  });
+
   // Split history
-  const downloadHistory = (history || []).filter((t: any) => !t.direction || t.direction === "download");
-  const uploadHistory = (history || []).filter((t: any) => t.direction === "upload");
+  const downloadHistory = enrichedHistory.filter((t: any) => !t.direction || t.direction === "download");
+  const uploadHistory = enrichedHistory.filter((t: any) => t.direction === "upload");
 
   // ── Historical stats (these drive the verdict) ─────────────
-  function median(arr: number[]): number | null {
+  function medianOf(arr: number[]): number | null {
     if (arr.length === 0) return null;
     const sorted = [...arr].sort((a, b) => a - b);
     const mid = Math.floor(sorted.length / 2);
@@ -65,12 +82,18 @@ export default async function ThroughputPage({
   const ulMultiSpeeds = uploadHistory.filter((t: any) => t.stream_count > 1).map((t: any) => t.speed_mbps);
   const ulSingleSpeeds = uploadHistory.filter((t: any) => t.stream_count === 1).map((t: any) => t.speed_mbps);
 
-  const dlMultiMedian = median(dlMultiSpeeds);
-  const dlSingleMedian = median(dlSingleSpeeds);
-  const ulMultiMedian = median(ulMultiSpeeds);
-  const ulSingleMedian = median(ulSingleSpeeds);
+  const dlMultiMedian = medianOf(dlMultiSpeeds);
+  const dlSingleMedian = medianOf(dlSingleSpeeds);
+  const ulMultiMedian = medianOf(ulMultiSpeeds);
+  const ulSingleMedian = medianOf(ulSingleSpeeds);
 
-  // Historical throttle ratios — these are what matter
+  // WAN-adjusted medians (what the ISP actually delivered to the router)
+  const dlMultiTestsArr = downloadHistory.filter((t: any) => t.stream_count > 1) as ThroughputTest[];
+  const ulMultiTestsArr = uploadHistory.filter((t: any) => t.stream_count > 1) as ThroughputTest[];
+  const adjDlMultiMedian = adjustedMedian(dlMultiTestsArr);
+  const adjUlMultiMedian = adjustedMedian(ulMultiTestsArr);
+
+  // Historical throttle ratios — raw (for policing evidence)
   const dlRatios: number[] = [];
   const dlSingleTests = downloadHistory.filter((t: any) => t.stream_count === 1);
   const dlMultiTests = downloadHistory.filter((t: any) => t.stream_count > 1);
@@ -79,8 +102,20 @@ export default async function ThroughputPage({
       dlRatios.push(dlMultiTests[i].speed_mbps / dlSingleTests[i].speed_mbps);
     }
   }
-  const medianDlRatio = median(dlRatios);
+  const medianDlRatio = medianOf(dlRatios);
   const isHistDlThrottled = medianDlRatio != null && medianDlRatio > THRESHOLDS.policingRatio;
+
+  // WAN-adjusted throttle ratios (full context)
+  const adjDlRatios: number[] = [];
+  const dlSingleTestsCast = dlSingleTests as ThroughputTest[];
+  const dlMultiTestsCast = dlMultiTests as ThroughputTest[];
+  for (let i = 0; i < Math.min(dlSingleTestsCast.length, dlMultiTestsCast.length); i++) {
+    const adjSingle = adjustedSpeed(dlSingleTestsCast[i]);
+    if (adjSingle > 0) {
+      adjDlRatios.push(adjustedSpeed(dlMultiTestsCast[i]) / adjSingle);
+    }
+  }
+  const medianAdjDlRatio = medianOf(adjDlRatios);
 
   const ulRatios: number[] = [];
   const ulSingleTests = uploadHistory.filter((t: any) => t.stream_count === 1);
@@ -90,49 +125,96 @@ export default async function ThroughputPage({
       ulRatios.push(ulMultiTests[i].speed_mbps / ulSingleTests[i].speed_mbps);
     }
   }
-  const medianUlRatio = median(ulRatios);
+  const medianUlRatio = medianOf(ulRatios);
   const isHistUlThrottled = medianUlRatio != null && medianUlRatio > THRESHOLDS.policingRatio;
 
   const totalTests = downloadHistory.length + uploadHistory.length;
 
-  // ── Plan comparison ────────────────────────────────────────
-  const dlPlanPct = dlMultiMedian != null ? (dlMultiMedian / ISP_PLAN.avgPeakDown) * 100 : null;
-  const ulPlanPct = ulMultiMedian != null ? (ulMultiMedian / ISP_PLAN.avgPeakUp) * 100 : null;
-  const dlBelowMinimum = dlMultiMedian != null && dlMultiMedian < ISP_PLAN.minimumDown;
-  const ulBelowMinimum = ulMultiMedian != null && ulMultiMedian < ISP_PLAN.minimumUp;
+  // ── Plan comparison (use WAN-adjusted medians) ─────────────
+  // Adjusted values reflect what ISP delivered; raw values reflect what this device got
+  const dlPlanPctAdj = adjDlMultiMedian != null ? (adjDlMultiMedian / ISP_PLAN.avgPeakDown) * 100 : null;
+  const ulPlanPctAdj = adjUlMultiMedian != null ? (adjUlMultiMedian / ISP_PLAN.avgPeakUp) * 100 : null;
+  const dlPlanPctRaw = dlMultiMedian != null ? (dlMultiMedian / ISP_PLAN.avgPeakDown) * 100 : null;
+  const ulPlanPctRaw = ulMultiMedian != null ? (ulMultiMedian / ISP_PLAN.avgPeakUp) * 100 : null;
+  // Use adjusted for "below minimum" since it reflects true ISP delivery
+  const dlBelowMinimumAdj = adjDlMultiMedian != null && adjDlMultiMedian < ISP_PLAN.minimumDown;
+  const ulBelowMinimumAdj = adjUlMultiMedian != null && adjUlMultiMedian < ISP_PLAN.minimumUp;
+  const dlBelowMinimumRaw = dlMultiMedian != null && dlMultiMedian < ISP_PLAN.minimumDown;
 
-  // ── Verdict driven by HISTORICAL data ──────────────────────
+  // Verdict softening: raw speed triggered bad verdict but ISP delivered enough?
+  const dlSoftening = verdictSoftening(
+    dlMultiMedian, adjDlMultiMedian, ISP_PLAN.minimumDown, "the speed test"
+  );
+
+  // ── Verdict driven by HISTORICAL data (WAN-adjusted) ───────
   let verdictStatus: VerdictStatus = "healthy";
   if (isHistDlThrottled && medianDlRatio! > 2.0) verdictStatus = "critical";
-  else if (dlBelowMinimum) verdictStatus = "critical";
+  else if (dlBelowMinimumAdj) verdictStatus = "critical";
+  else if (dlBelowMinimumRaw && dlSoftening.shouldSoften) verdictStatus = "degraded"; // softened from critical
   else if (isHistDlThrottled || isHistUlThrottled) verdictStatus = "poor";
-  else if (dlPlanPct != null && dlPlanPct < 60) verdictStatus = "poor";
+  else if (dlPlanPctAdj != null && dlPlanPctAdj < 60) verdictStatus = "poor";
   else if (dlSingleMedian != null && dlSingleMedian < THRESHOLDS.minSingleStreamMbps) verdictStatus = "degraded";
-  else if (dlPlanPct != null && dlPlanPct < 80) verdictStatus = "degraded";
+  else if (dlPlanPctAdj != null && dlPlanPctAdj < 80) verdictStatus = "degraded";
 
+  // Use adjusted plan % for display when available, raw as fallback
+  const dlPlanPct = dlPlanPctAdj ?? dlPlanPctRaw;
+  const ulPlanPct = ulPlanPctAdj ?? ulPlanPctRaw;
+
+  const hasWanData = adjDlMultiMedian != null && adjDlMultiMedian !== dlMultiMedian;
   const planContext = dlPlanPct != null
     ? ` You're getting ${dlPlanPct.toFixed(0)}% of ${ISP_PLAN.provider}'s published ${ISP_PLAN.avgPeakDown} Mbps average for the ${ISP_PLAN.tier} plan.`
     : "";
   const ulPlanContext = ulPlanPct != null
-    ? ` Upload: ${ulPlanPct.toFixed(0)}% of plan (${ulMultiMedian?.toFixed(0)} of ${ISP_PLAN.avgPeakUp} Mbps).`
+    ? ` Upload: ${ulPlanPct.toFixed(0)}% of plan (${(adjUlMultiMedian ?? ulMultiMedian)?.toFixed(0)} of ${ISP_PLAN.avgPeakUp} Mbps).`
+    : "";
+  const wanContext = dlSoftening.backgroundNote
+    ? ` ${dlSoftening.backgroundNote}.`
     : "";
 
   const verdictHeadlines: Record<VerdictStatus, string> = {
     healthy: "Your internet speed is consistently good",
-    degraded: "Speeds are below what your plan should deliver",
+    degraded: dlSoftening.shouldSoften
+      ? "Other devices are using your bandwidth"
+      : "Speeds are below what your plan should deliver",
     poor: "Your ISP is throttling your speed",
-    critical: dlBelowMinimum ? "Speeds are critically below your plan" : "Persistent speed throttling detected",
+    critical: dlBelowMinimumAdj ? "Speeds are critically below your plan" : "Persistent speed throttling detected",
   };
   const verdictDescriptions: Record<VerdictStatus, string> = {
-    healthy: `Median download: ${dlMultiMedian?.toFixed(0) ?? "?"} Mbps, upload: ${ulMultiMedian?.toFixed(0) ?? "?"} Mbps across ${totalTests} tests.${planContext} No throttling detected.`,
-    degraded: `Median download: ${dlMultiMedian?.toFixed(0) ?? "?"} Mbps across ${dlMultiSpeeds.length} tests.${planContext}${ulPlanContext}`,
+    healthy: `Median download: ${(adjDlMultiMedian ?? dlMultiMedian)?.toFixed(0) ?? "?"} Mbps, upload: ${(adjUlMultiMedian ?? ulMultiMedian)?.toFixed(0) ?? "?"} Mbps across ${totalTests} tests.${planContext} No throttling detected.`,
+    degraded: dlSoftening.shouldSoften
+      ? `Your ISP delivered ${adjDlMultiMedian?.toFixed(0)} Mbps to the router, but household traffic reduced your measured speed to ${dlMultiMedian?.toFixed(0)} Mbps.${planContext}`
+      : `Median download: ${(adjDlMultiMedian ?? dlMultiMedian)?.toFixed(0) ?? "?"} Mbps across ${dlMultiSpeeds.length} tests.${planContext}${ulPlanContext}`,
     poor: isHistDlThrottled
-      ? `Median single-connection speed is ${dlSingleMedian?.toFixed(0) ?? "?"} Mbps vs ${dlMultiMedian?.toFixed(0) ?? "?"} Mbps multi (${medianDlRatio?.toFixed(2)}x) across ${dlRatios.length} paired tests.${planContext} Your ISP is limiting individual connections.`
-      : `Median download: ${dlMultiMedian?.toFixed(0) ?? "?"} Mbps — significantly below the ${ISP_PLAN.avgPeakDown} Mbps average your ${ISP_PLAN.tier} plan should deliver.${ulPlanContext}`,
-    critical: dlBelowMinimum
-      ? `Median download is only ${dlMultiMedian?.toFixed(0)} Mbps — below the ${ISP_PLAN.minimumDown} Mbps minimum threshold for your ${ISP_PLAN.tier} plan. Under Ofcom's code, you may be entitled to exit your contract penalty-free.${planContext}`
+      ? `Median single-connection speed is ${dlSingleMedian?.toFixed(0) ?? "?"} Mbps vs ${dlMultiMedian?.toFixed(0) ?? "?"} Mbps multi (${medianDlRatio?.toFixed(2)}x raw${medianAdjDlRatio != null ? `, ${medianAdjDlRatio.toFixed(2)}x adjusted` : ""}) across ${dlRatios.length} paired tests.${planContext} Your ISP is limiting individual connections.`
+      : `Median download: ${(adjDlMultiMedian ?? dlMultiMedian)?.toFixed(0) ?? "?"} Mbps — significantly below the ${ISP_PLAN.avgPeakDown} Mbps average your ${ISP_PLAN.tier} plan should deliver.${ulPlanContext}`,
+    critical: dlBelowMinimumAdj
+      ? `Median download is only ${(adjDlMultiMedian ?? dlMultiMedian)?.toFixed(0)} Mbps — below the ${ISP_PLAN.minimumDown} Mbps minimum threshold for your ${ISP_PLAN.tier} plan. Under Ofcom's code, you may be entitled to exit your contract penalty-free.${planContext}`
       : `Persistent throttling: median ${dlSingleMedian?.toFixed(0) ?? "?"} Mbps single vs ${dlMultiMedian?.toFixed(0) ?? "?"} Mbps multi (${medianDlRatio?.toFixed(2)}x) across ${dlRatios.length} paired tests.${planContext}`,
   };
+
+  // ── Background traffic analysis ─────────────────────────────
+  // Compute background bytes for tests that have WAN counter data
+  function backgroundBytes(test: any): { bgBytes: number; direction: string } | null {
+    if (test.wan_rx_delta == null && test.wan_tx_delta == null) return null;
+    if (test.direction === "download" && test.wan_rx_delta != null) {
+      return { bgBytes: Math.max(0, test.wan_rx_delta - test.bytes_transferred), direction: "rx" };
+    }
+    if (test.direction === "upload" && test.wan_tx_delta != null) {
+      return { bgBytes: Math.max(0, test.wan_tx_delta - test.bytes_transferred), direction: "tx" };
+    }
+    return null;
+  }
+
+  // Flag: how many tests had >5 MB background traffic (significant)
+  const BG_THRESHOLD_BYTES = 5 * 1024 * 1024; // 5 MB
+  const testsWithBgData = (history || []).filter((t: any) => t.wan_rx_delta != null || t.wan_tx_delta != null);
+  const testsWithSignificantBg = testsWithBgData.filter((t: any) => {
+    const bg = backgroundBytes(t);
+    return bg && bg.bgBytes > BG_THRESHOLD_BYTES;
+  });
+  const bgPct = testsWithBgData.length > 0
+    ? Math.round((testsWithSignificantBg.length / testsWithBgData.length) * 100)
+    : null;
 
   // Recent tests for the paginated table — limit to last 20
   const recentTests = (history || []).slice(-20).reverse();
@@ -156,12 +238,16 @@ export default async function ThroughputPage({
             {
               label: "Median DL",
               value: dlMultiMedian != null ? `${dlMultiMedian.toFixed(0)} Mbps` : "N/A",
-              subValue: latestDlMulti != null ? `Latest: ${latestDlMulti.toFixed(0)}` : undefined,
+              subValue: hasWanData && adjDlMultiMedian != null
+                ? `ISP: ${adjDlMultiMedian.toFixed(0)} Mbps`
+                : latestDlMulti != null ? `Latest: ${latestDlMulti.toFixed(0)}` : undefined,
             },
             {
               label: "Median UL",
               value: ulMultiMedian != null ? `${ulMultiMedian.toFixed(0)} Mbps` : "N/A",
-              subValue: latestUlMulti != null ? `Latest: ${latestUlMulti.toFixed(0)}` : undefined,
+              subValue: adjUlMultiMedian != null && adjUlMultiMedian !== ulMultiMedian
+                ? `ISP: ${adjUlMultiMedian.toFixed(0)} Mbps`
+                : latestUlMulti != null ? `Latest: ${latestUlMulti.toFixed(0)}` : undefined,
             },
             ...(dlPlanPct != null ? [{
               label: "Plan",
@@ -171,7 +257,9 @@ export default async function ThroughputPage({
             ...(medianDlRatio != null ? [{
               label: "Throttle",
               value: `${medianDlRatio.toFixed(2)}x`,
-              subValue: isHistDlThrottled ? "Confirmed" : "Normal",
+              subValue: medianAdjDlRatio != null
+                ? `Adjusted: ${medianAdjDlRatio.toFixed(2)}x`
+                : isHistDlThrottled ? "Confirmed" : "Normal",
             }] : []),
           ]}
         />
@@ -181,7 +269,7 @@ export default async function ThroughputPage({
           if (isHistDlThrottled) alerts.push({
             severity: "critical",
             title: "Speed Throttling Detected",
-            description: `Across ${dlRatios.length} paired tests, single-connection downloads reach only ${dlSingleMedian?.toFixed(0)} Mbps while multi-connection achieves ${dlMultiMedian?.toFixed(0)} Mbps (${medianDlRatio?.toFixed(2)}x ratio). Persistent pattern.`,
+            description: `Across ${dlRatios.length} paired tests, single-connection downloads reach only ${dlSingleMedian?.toFixed(0)} Mbps while multi-connection achieves ${dlMultiMedian?.toFixed(0)} Mbps (${medianDlRatio?.toFixed(2)}x raw ratio${medianAdjDlRatio != null ? `, ${medianAdjDlRatio.toFixed(2)}x WAN-adjusted` : ""}). Persistent pattern.`,
             action: "View evidence",
             actionHref: "/evidence",
             items: [
@@ -189,10 +277,10 @@ export default async function ThroughputPage({
               "Streaming services using single connections will be affected",
             ],
           });
-          if (dlBelowMinimum) alerts.push({
+          if (dlBelowMinimumAdj) alerts.push({
             severity: "critical",
             title: `Below ${ISP_PLAN.provider} Minimum`,
-            description: `Median ${dlMultiMedian?.toFixed(0)} Mbps is below the ${ISP_PLAN.minimumDown} Mbps minimum for your ${ISP_PLAN.tier} plan (${dlPlanPct?.toFixed(0)}% of ${ISP_PLAN.avgPeakDown} Mbps published avg). Under Ofcom's code, you may exit your contract penalty-free.`,
+            description: `Median ${(adjDlMultiMedian ?? dlMultiMedian)?.toFixed(0)} Mbps${hasWanData ? " (ISP-delivered)" : ""} is below the ${ISP_PLAN.minimumDown} Mbps minimum for your ${ISP_PLAN.tier} plan (${dlPlanPct?.toFixed(0)}% of ${ISP_PLAN.avgPeakDown} Mbps published avg). Under Ofcom's code, you may exit your contract penalty-free.`,
             action: "Your rights",
             actionHref: "https://www.ofcom.org.uk/phones-and-broadband/broadband-and-mobile-coverage/broadband-speeds/broadband-speeds",
             items: [
@@ -200,10 +288,24 @@ export default async function ThroughputPage({
               "Request a formal speed investigation",
             ],
           });
+          if (dlBelowMinimumRaw && dlSoftening.shouldSoften) alerts.push({
+            severity: "info",
+            title: "Household Traffic Reducing Your Speed",
+            description: dlSoftening.backgroundNote!,
+            items: [
+              "Your ISP is delivering adequate speed to the router",
+              "Other devices on your network are consuming bandwidth during tests",
+            ],
+          });
           if (isHistUlThrottled && !isHistDlThrottled) alerts.push({
             severity: "warning",
             title: "Upload Throttling Detected",
             description: `Upload single-connection median ${ulSingleMedian?.toFixed(0)} Mbps vs ${ulMultiMedian?.toFixed(0)} Mbps multi (${medianUlRatio?.toFixed(2)}x ratio across ${ulRatios.length} tests).`,
+          });
+          if (bgPct != null && bgPct > 30 && !dlSoftening.shouldSoften) alerts.push({
+            severity: "info",
+            title: "Other Devices Active During Tests",
+            description: `${bgPct}% of recent tests (${testsWithSignificantBg.length} of ${testsWithBgData.length}) had significant household traffic (>5 MB) running simultaneously. Measured speeds may be lower than your actual connection capacity.`,
           });
           return <AlertGroup alerts={alerts} />;
         })()}
@@ -245,6 +347,7 @@ export default async function ThroughputPage({
                 <TableHead className="text-right">Speed</TableHead>
                 <TableHead className="text-right">Latency</TableHead>
                 <TableHead className="text-right">Duration</TableHead>
+                <TableHead className="text-right">Other Traffic</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -276,6 +379,20 @@ export default async function ThroughputPage({
                   </TableCell>
                   <TableCell className="text-right text-muted-foreground font-mono text-xs">
                     {(test.duration_ms / 1000).toFixed(1)}s
+                  </TableCell>
+                  <TableCell className="text-right font-mono text-xs">
+                    {(() => {
+                      const bg = backgroundBytes(test);
+                      if (!bg) return <span className="text-muted-foreground/50">{"\u2014"}</span>;
+                      const mbBg = bg.bgBytes / 1024 / 1024;
+                      if (mbBg < 1) return <span className="text-muted-foreground">{"<1 MB"}</span>;
+                      const isHigh = bg.bgBytes > BG_THRESHOLD_BYTES;
+                      return (
+                        <span className={isHigh ? "text-amber-400" : "text-muted-foreground"}>
+                          {mbBg.toFixed(0)} MB
+                        </span>
+                      );
+                    })()}
                   </TableCell>
                 </TableRow>
               ))}
