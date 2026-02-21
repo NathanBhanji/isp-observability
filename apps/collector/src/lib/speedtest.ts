@@ -13,7 +13,7 @@ import { MIN_VALID_DOWNLOAD_BYTES } from "@isp/shared";
 
 // ── Types ────────────────────────────────────────────────────
 
-interface SpeedtestServer {
+export interface SpeedtestServer {
   id: string;
   host: string;
   name: string;
@@ -78,7 +78,7 @@ async function measureLatency(host: string): Promise<number> {
  * Select the best server — pick the closest 5 by distance,
  * then choose the one with lowest latency.
  */
-async function selectBestServer(): Promise<SpeedtestServer> {
+export async function selectBestServer(): Promise<SpeedtestServer> {
   // Use cache if fresh
   if (cachedServer && Date.now() - cacheTime < CACHE_TTL_MS) {
     return cachedServer;
@@ -144,9 +144,10 @@ function downloadUrl(host: string): string {
  */
 export async function runOoklaTest(
   streamCount: number = 1,
-  durationSec: number = 10
+  durationSec: number = 10,
+  preResolvedServer?: SpeedtestServer
 ): Promise<DownloadResult & { server: string; serverHost: string }> {
-  const server = await selectBestServer();
+  const server = preResolvedServer ?? await selectBestServer();
   const url = downloadUrl(server.host);
 
   const timeseries: {
@@ -294,9 +295,10 @@ function generatePayload(bytes: number): Buffer {
  */
 export async function runOoklaUploadTest(
   streamCount: number = 1,
-  durationSec: number = 10
+  durationSec: number = 10,
+  preResolvedServer?: SpeedtestServer
 ): Promise<UploadResult> {
-  const server = await selectBestServer();
+  const server = preResolvedServer ?? await selectBestServer();
   const url = uploadUrl(server.host);
 
   const timeseries: {

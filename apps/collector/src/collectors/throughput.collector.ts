@@ -1,7 +1,7 @@
 import { INTERVALS, MULTI_STREAM_COUNT, PING_TARGETS } from "@isp/shared";
 import type { Collector } from "../scheduler";
 import { getDb } from "../db";
-import { runOoklaTest, runOoklaUploadTest } from "../lib/speedtest";
+import { runOoklaTest, runOoklaUploadTest, selectBestServer } from "../lib/speedtest";
 import { pearsonCorrelation } from "../lib/stats";
 import { getWanTrafficCounters, counterDelta } from "../lib/upnp";
 import { randomUUIDv7 } from "bun";
@@ -92,19 +92,25 @@ export class ThroughputCollector implements Collector {
       pinging = false;
     };
 
+    // ── Resolve server upfront so WAN snapshots tightly bracket data transfer ──
+    let serverLabel = "ookla";
+    const server = await selectBestServer().catch((e) => {
+      console.error("[throughput] Server discovery failed:", (e as Error).message);
+      return null;
+    });
+
     // ── Single-stream test (with latency pings) ─────────────
 
-    let serverLabel = "ookla";
-
     try {
+      if (!server) throw new Error("No server available");
       console.log("[throughput] Starting single-stream Ookla test (with latency probes)...");
       const singlePingSampleStart = correlationSamples.length;
 
-      // Snapshot WAN counters before the test (retry — plenty of time before test starts)
+      // Snapshot WAN counters right before data transfer (server already resolved)
       const wanBefore = await getWanTrafficCounters(2);
       const pingPromise = startPinging();
 
-      const single = await runOoklaTest(1);
+      const single = await runOoklaTest(1, 10, server);
       serverLabel = single.server;
 
       currentThroughput = single.speedMbps;
@@ -152,14 +158,15 @@ export class ThroughputCollector implements Collector {
     // ── Multi-stream test (with latency pings) ──────────────
 
     try {
+      if (!server) throw new Error("No server available");
       console.log(`[throughput] Starting ${MULTI_STREAM_COUNT}-stream Ookla test (with latency probes)...`);
       const multiPingSampleStart = correlationSamples.length;
 
-      // Snapshot WAN counters before the test (retry — plenty of time before test starts)
+      // Snapshot WAN counters right before data transfer (server already resolved)
       const wanBeforeMulti = await getWanTrafficCounters(2);
       const pingPromise = startPinging();
 
-      const multi = await runOoklaTest(MULTI_STREAM_COUNT);
+      const multi = await runOoklaTest(MULTI_STREAM_COUNT, 10, server);
       serverLabel = multi.server;
 
       currentThroughput = multi.speedMbps;
@@ -240,12 +247,13 @@ export class ThroughputCollector implements Collector {
 
     // Single-stream upload
     try {
+      if (!server) throw new Error("No server available");
       console.log("[throughput] Starting single-stream upload test...");
 
-      // Snapshot WAN counters before upload (retry — plenty of time before test starts)
+      // Snapshot WAN counters right before data transfer (server already resolved)
       const wanBeforeUl = await getWanTrafficCounters(2);
 
-      const upload = await runOoklaUploadTest(1);
+      const upload = await runOoklaUploadTest(1, 10, server);
 
       // Snapshot WAN counters after upload
       const wanAfterUl = await getWanTrafficCounters();
@@ -282,12 +290,13 @@ export class ThroughputCollector implements Collector {
 
     // Multi-stream upload
     try {
+      if (!server) throw new Error("No server available");
       console.log(`[throughput] Starting ${MULTI_STREAM_COUNT}-stream upload test...`);
 
-      // Snapshot WAN counters before upload (retry — plenty of time before test starts)
+      // Snapshot WAN counters right before data transfer (server already resolved)
       const wanBeforeUlMulti = await getWanTrafficCounters(2);
 
-      const uploadMulti = await runOoklaUploadTest(MULTI_STREAM_COUNT);
+      const uploadMulti = await runOoklaUploadTest(MULTI_STREAM_COUNT, 10, server);
 
       // Snapshot WAN counters after upload
       const wanAfterUlMulti = await getWanTrafficCounters();
