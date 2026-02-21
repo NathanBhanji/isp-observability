@@ -1,0 +1,12 @@
+node_modules
+.next
+.turbo
+.git
+*.db
+*.db-journal
+*.db-wal
+data/
+*.png
+.env
+.env.local
+.docker

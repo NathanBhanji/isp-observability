@@ -1,0 +1,32 @@
+services:
+  collector:
+    build:
+      context: .
+      dockerfile: apps/collector/Dockerfile
+    # On Linux (NAS): uncomment network_mode and remove ports
+    # network_mode: host
+    ports:
+      - "4000:4000"
+    cap_add:
+      - NET_RAW
+    volumes:
+      - ./data:/app/data
+    environment:
+      - DATABASE_PATH=/app/data/isp-observability.db
+      - PORT=4000
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      # Use Docker service name (bridged networking)
+      # On Linux with network_mode: host, change to http://host.docker.internal:4000
+      - COLLECTOR_URL=http://collector:4000
+      - NODE_ENV=production
+    depends_on:
+      - collector
+    restart: unless-stopped

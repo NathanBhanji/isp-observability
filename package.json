@@ -1,0 +1,19 @@
+{
+  "name": "isp-observability",
+  "private": true,
+  "packageManager": "bun@1.2.15",
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "dev:web": "turbo dev --filter=@isp/web",
+    "dev:collector": "turbo dev --filter=@isp/collector",
+    "docker:build": "docker compose build",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down"
+  },
+  "devDependencies": {
+    "turbo": "^2",
+    "typescript": "^5.7"
+  }
+}
