@@ -109,24 +109,16 @@ export class HeartbeatCollector implements Collector {
    * - Google's generate_204 and Cloudflare's trace are highly available
    */
   private async checkConnectivity(): Promise<boolean> {
-    const checks = HEALTH_ENDPOINTS.map(async (url) => {
-      try {
-        const controller = new AbortController();
-        const timeout = setTimeout(
-          () => controller.abort(),
-          REQUEST_TIMEOUT
-        );
-        const response = await fetch(url, {
-          signal: controller.signal,
-          redirect: "manual",
-        });
-        clearTimeout(timeout);
-        // Google returns 204, Cloudflare returns 200 — both are fine
-        return response.status >= 200 && response.status < 400;
-      } catch {
-        return false;
-      }
-    });
+    const checks = HEALTH_ENDPOINTS.map((url) =>
+      Promise.race([
+        fetch(url, { redirect: "manual" })
+          .then((r) => r.status >= 200 && r.status < 400)
+          .catch(() => false),
+        new Promise<false>((resolve) =>
+          setTimeout(() => resolve(false), REQUEST_TIMEOUT)
+        ),
+      ])
+    );
 
     const results = await Promise.all(checks);
     return results.some((ok) => ok);
