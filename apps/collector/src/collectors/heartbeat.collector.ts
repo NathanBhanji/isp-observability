@@ -1,16 +1,29 @@
-import { ROUTER_IP } from "@isp/shared";
 import type { Collector } from "../scheduler";
 import { getDb } from "../db";
 
 /**
- * Heartbeat collector — lightweight gateway ping every 5 seconds.
+ * Heartbeat collector — lightweight HTTP connectivity check every 5 seconds.
  *
- * Does NOT store every ping result (that would be 17,280 rows/day).
+ * Uses HTTP health-check endpoints (Google generate_204 + Cloudflare) instead
+ * of gateway ICMP ping. This detects actual ISP outages (WAN link down) rather
+ * than just local router reachability.
+ *
+ * Does NOT store every check result (that would be 17,280 rows/day).
  * Instead, tracks consecutive failures in memory and only writes
  * an outage record to the DB when connectivity drops and recovers.
  *
- * An "outage" is defined as 3+ consecutive missed pings (>= 15 seconds).
+ * An "outage" is defined as 3+ consecutive failed checks (>= 15 seconds).
  */
+
+/** Endpoints to check — if ANY succeeds, we have connectivity */
+const HEALTH_ENDPOINTS = [
+  "http://clients3.google.com/generate_204",
+  "http://1.1.1.1/cdn-cgi/trace",
+];
+
+/** Timeout for each HTTP request (ms) */
+const REQUEST_TIMEOUT = 3_000;
+
 export class HeartbeatCollector implements Collector {
   name = "heartbeat";
   interval = 5_000; // 5 seconds
@@ -23,7 +36,7 @@ export class HeartbeatCollector implements Collector {
   private static readonly OUTAGE_THRESHOLD = 3;
 
   async collect(): Promise<string | void> {
-    const reachable = await this.pingGateway();
+    const reachable = await this.checkConnectivity();
 
     if (!reachable) {
       this.consecutiveFailures++;
@@ -61,7 +74,7 @@ export class HeartbeatCollector implements Collector {
         ).run(this.consecutiveFailures, this.currentOutageId);
       }
     } else {
-      // Gateway is reachable — close any open outage
+      // Internet is reachable — close any open outage
       if (this.outageStartTime && this.currentOutageId) {
         const endedAt = new Date().toISOString();
         const durationMs =
@@ -87,19 +100,35 @@ export class HeartbeatCollector implements Collector {
   }
 
   /**
-   * Single ICMP ping to the gateway with 2 second timeout.
-   * Returns true if gateway responds, false otherwise.
+   * Check internet connectivity by hitting well-known HTTP endpoints.
+   * Returns true if ANY endpoint responds successfully.
+   *
+   * Uses HTTP rather than ICMP because:
+   * - Some ISPs/routers drop or deprioritize ICMP
+   * - HTTP checks verify L7 connectivity, not just L3
+   * - Google's generate_204 and Cloudflare's trace are highly available
    */
-  private async pingGateway(): Promise<boolean> {
-    try {
-      const proc = Bun.spawn(
-        ["ping", "-c", "1", "-W", "2", ROUTER_IP],
-        { stdout: "pipe", stderr: "pipe" }
-      );
-      const code = await proc.exited;
-      return code === 0;
-    } catch {
-      return false;
-    }
+  private async checkConnectivity(): Promise<boolean> {
+    const checks = HEALTH_ENDPOINTS.map(async (url) => {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(
+          () => controller.abort(),
+          REQUEST_TIMEOUT
+        );
+        const response = await fetch(url, {
+          signal: controller.signal,
+          redirect: "manual",
+        });
+        clearTimeout(timeout);
+        // Google returns 204, Cloudflare returns 200 — both are fine
+        return response.status >= 200 && response.status < 400;
+      } catch {
+        return false;
+      }
+    });
+
+    const results = await Promise.all(checks);
+    return results.some((ok) => ok);
   }
 }
