@@ -251,6 +251,7 @@ export async function runOoklaTest(
     timeseries,
     server: `${server.sponsor} (${server.name})`,
     serverHost: server.host,
+    idleLatencyMs: server.latencyMs != null ? Math.round(server.latencyMs * 100) / 100 : null,
   };
 }
 
@@ -263,6 +264,7 @@ export interface UploadResult {
   timeseries: { secondOffset: number; bytesThisSecond: number; speedMbps: number }[];
   server: string;
   serverHost: string;
+  idleLatencyMs: number | null;
 }
 
 /**
@@ -403,6 +405,7 @@ export async function runOoklaUploadTest(
     timeseries,
     server: `${server.sponsor} (${server.name})`,
     serverHost: server.host,
+    idleLatencyMs: server.latencyMs != null ? Math.round(server.latencyMs * 100) / 100 : null,
   };
 }
 

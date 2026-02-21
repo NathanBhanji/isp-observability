@@ -1,6 +1,6 @@
 "use client";
 
-import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
+import { Area, AreaChart, CartesianGrid, XAxis, YAxis, ReferenceLine } from "recharts";
 import {
   ChartContainer,
   ChartTooltip,
@@ -26,12 +26,17 @@ export function DecayPattern({ data }: DecayPatternProps) {
     speed: d.speed_mbps,
   }));
 
+  // Calculate average speed for reference line
+  const avgSpeed = chartData.length > 0
+    ? chartData.reduce((sum, d) => sum + d.speed, 0) / chartData.length
+    : 0;
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Single-Stream Decay Pattern</CardTitle>
+        <CardTitle className="text-base">Single-Stream Throughput Profile</CardTitle>
         <CardDescription>
-          Per-second throughput during single-stream download
+          Per-second throughput during single-stream download — reveals throttling patterns, burst allowances, and rate-limiter behavior
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -52,8 +57,22 @@ export function DecayPattern({ data }: DecayPatternProps) {
               tickMargin={8}
               fontSize={11}
               tickFormatter={(v) => `${v}`}
+              domain={[0, "auto"]}
             />
-            
+            {avgSpeed > 0 && (
+              <ReferenceLine
+                y={avgSpeed}
+                stroke="var(--muted-foreground)"
+                strokeDasharray="4 4"
+                strokeOpacity={0.5}
+                label={{
+                  value: `avg: ${avgSpeed.toFixed(0)} Mbps`,
+                  position: "right",
+                  fill: "var(--muted-foreground)",
+                  fontSize: 10,
+                }}
+              />
+            )}
             <ChartTooltip content={<ChartTooltipContent />} />
             <Area
               dataKey="speed"

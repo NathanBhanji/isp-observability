@@ -1,11 +1,12 @@
 "use client";
 
 import {
-  Area,
-  AreaChart,
+  Line,
+  LineChart,
   CartesianGrid,
   XAxis,
   YAxis,
+  ReferenceLine,
 } from "recharts";
 import {
   ChartContainer,
@@ -66,7 +67,7 @@ export function LatencyTimeline({
       </CardHeader>
       <CardContent>
         <ChartContainer config={hopChartConfig} className="min-h-[300px] w-full">
-          <AreaChart data={chartData} accessibilityLayer>
+          <LineChart data={chartData} accessibilityLayer>
             <CartesianGrid vertical={false} strokeDasharray="3 3" />
             <XAxis
               dataKey="time"
@@ -82,23 +83,24 @@ export function LatencyTimeline({
               tickMargin={8}
               fontSize={11}
               tickFormatter={(v) => `${v}ms`}
+              domain={[0, "auto"]}
             />
             <ChartTooltip
               content={<ChartTooltipContent indicator="line" />}
             />
             <ChartLegend content={<ChartLegendContent />} />
             {PING_TARGETS.map((target) => (
-              <Area
+              <Line
                 key={target.id}
                 dataKey={target.id}
                 type="monotone"
-                fill={`var(--color-${target.id})`}
-                fillOpacity={0.1}
                 stroke={`var(--color-${target.id})`}
                 strokeWidth={1.5}
+                dot={false}
+                connectNulls
               />
             ))}
-          </AreaChart>
+          </LineChart>
         </ChartContainer>
       </CardContent>
     </Card>

@@ -42,7 +42,7 @@ export default function RootLayout({
           <SidebarProvider>
             <AppSidebar />
             <SidebarInset>
-              <header className="flex h-12 shrink-0 items-center justify-between border-b border-sidebar-border px-4">
+              <header className="flex h-12 shrink-0 items-center justify-between border-b border-sidebar-border px-3 sm:px-4">
                 <div className="flex items-center gap-2">
                   <SidebarTrigger className="-ml-1" />
                   <Separator orientation="vertical" className="mr-2 h-4" />

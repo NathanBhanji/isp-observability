@@ -46,6 +46,7 @@ export interface ThroughputTest {
   sourceUrl: string;
   sourceType: "wired" | "ethernet";
   direction: "download" | "upload";
+  idleLatencyMs: number | null;
 }
 
 export interface ThroughputTimeseries {

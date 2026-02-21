@@ -8,9 +8,18 @@ import {
 import { THRESHOLDS } from "@isp/shared";
 import { ThroughputHistory } from "@/components/charts/throughput-history";
 import { DecayPattern } from "@/components/charts/decay-pattern";
+import { RatioTimeline } from "@/components/charts/ratio-timeline";
 import { KpiCard } from "@/components/dashboard/kpi-card";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 
 export const metadata: Metadata = { title: "Throughput Analysis" };
 
@@ -27,28 +36,33 @@ export default async function ThroughputPage({
     fetchThroughputHistory(since),
   ]);
 
-  // Get timeseries for the latest single-stream test
-  const singleTestId = latest?.single?.id;
+  // Get timeseries for the latest single-stream download test
+  const singleDlTest = latest?.download?.single || latest?.single;
+  const singleTestId = singleDlTest?.id;
   const timeseries = singleTestId
     ? await fetchThroughputTimeseries(singleTestId)
     : null;
 
-  // Download stats (from direction-filtered /latest)
+  // Download stats
   const ratio = latest?.download?.ratio ?? latest?.ratio;
   const isPolicied = ratio != null && ratio > THRESHOLDS.policingRatio;
 
-  // Upload stats (from direction-filtered /latest)
+  // Upload stats
   const latestUploadSingle = latest?.upload?.single;
   const latestUploadMulti = latest?.upload?.multi;
   const ulRatio = latest?.upload?.ratio;
   const isUlPolicied = ulRatio != null && ulRatio > THRESHOLDS.policingRatio;
+
+  // Server latency
+  const dlLatency = singleDlTest?.idle_latency_ms;
+  const ulLatency = latestUploadSingle?.idle_latency_ms;
 
   // Split history into download and upload
   const downloadHistory = (history || []).filter((t: any) => !t.direction || t.direction === "download");
   const uploadHistory = (history || []).filter((t: any) => t.direction === "upload");
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 sm:p-6 space-y-6">
       <div>
         <h1 className="text-xl font-semibold tracking-tight">Throughput Analysis</h1>
         <p className="text-sm text-muted-foreground">
@@ -59,7 +73,7 @@ export default async function ThroughputPage({
       {/* Download KPI Row */}
       <div>
         <h2 className="text-sm font-medium text-muted-foreground mb-3">Download</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
           <KpiCard
             title="Single Stream"
             value={
@@ -72,6 +86,7 @@ export default async function ThroughputPage({
                 ? `${(latest.single.duration_ms / 1000).toFixed(1)}s duration`
                 : undefined
             }
+            metric="Latest"
           />
           <KpiCard
             title="Multi Stream (4x)"
@@ -85,6 +100,7 @@ export default async function ThroughputPage({
                 ? `${(latest.multi.duration_ms / 1000).toFixed(1)}s duration`
                 : undefined
             }
+            metric="Latest"
           />
           <KpiCard
             title="Multi/Single Ratio"
@@ -97,6 +113,14 @@ export default async function ThroughputPage({
                   : undefined
             }
           />
+          {dlLatency != null && (
+            <KpiCard
+              title="Server Latency"
+              value={`${dlLatency.toFixed(1)}ms`}
+              subtitle="Idle RTT to test server"
+              metric="Pre-test"
+            />
+          )}
           <KpiCard
             title="Download Tests"
             value={String(downloadHistory.length)}
@@ -108,7 +132,7 @@ export default async function ThroughputPage({
       {/* Upload KPI Row */}
       <div>
         <h2 className="text-sm font-medium text-muted-foreground mb-3">Upload</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
           <KpiCard
             title="Single Stream"
             value={
@@ -121,6 +145,7 @@ export default async function ThroughputPage({
                 ? `${(latestUploadSingle.duration_ms / 1000).toFixed(1)}s duration`
                 : undefined
             }
+            metric="Latest"
           />
           <KpiCard
             title="Multi Stream (4x)"
@@ -134,6 +159,7 @@ export default async function ThroughputPage({
                 ? `${(latestUploadMulti.duration_ms / 1000).toFixed(1)}s duration`
                 : undefined
             }
+            metric="Latest"
           />
           <KpiCard
             title="UL Multi/Single Ratio"
@@ -146,6 +172,14 @@ export default async function ThroughputPage({
                   : undefined
             }
           />
+          {ulLatency != null && (
+            <KpiCard
+              title="Server Latency"
+              value={`${ulLatency.toFixed(1)}ms`}
+              subtitle="Idle RTT to test server"
+              metric="Pre-test"
+            />
+          )}
           <KpiCard
             title="Upload Tests"
             value={String(uploadHistory.length)}
@@ -178,7 +212,10 @@ export default async function ThroughputPage({
         <ThroughputHistory data={downloadHistory} direction="download" />
         <ThroughputHistory data={uploadHistory} direction="upload" />
       </div>
-      <div className="grid grid-cols-1 gap-4">
+
+      {/* Policing Ratio Over Time + Throughput Profile */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <RatioTimeline data={downloadHistory} />
         <DecayPattern data={timeseries || []} />
       </div>
 
@@ -189,55 +226,58 @@ export default async function ThroughputPage({
           <CardDescription>Last 30 speed tests (download + upload)</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="space-y-1">
-            <div className="grid grid-cols-7 gap-2 text-[11px] font-medium text-muted-foreground px-2 py-1">
-              <span>Time</span>
-              <span>Direction</span>
-              <span>Streams</span>
-              <span className="text-right">Speed</span>
-              <span className="text-right">Transferred</span>
-              <span className="text-right">Duration</span>
-              <span className="text-right">Source</span>
-            </div>
-            {(history || [])
-              .slice(-30)
-              .reverse()
-              .map((test: any) => (
-                <div
-                  key={test.id}
-                  className="grid grid-cols-7 gap-2 text-xs font-mono px-2 py-1.5 rounded hover:bg-secondary/50"
-                >
-                  <span className="text-muted-foreground">
-                    {test.timestamp?.slice(11, 19)}
-                  </span>
-                  <span>
-                    <Badge
-                      variant={test.direction === "upload" ? "outline" : "secondary"}
-                      className="text-[10px] px-1"
-                    >
-                      {test.direction === "upload" ? "UL" : "DL"}
-                    </Badge>
-                  </span>
-                  <span>
-                    <Badge variant="outline" className="text-[10px] px-1">
-                      {test.stream_count}x
-                    </Badge>
-                  </span>
-                  <span className="text-right font-semibold">
-                    {test.speed_mbps?.toFixed(0)} Mbps
-                  </span>
-                  <span className="text-right text-muted-foreground">
-                    {((test.bytes_transferred ?? test.bytes_downloaded) / 1024 / 1024).toFixed(1)} MB
-                  </span>
-                  <span className="text-right text-muted-foreground">
-                    {(test.duration_ms / 1000).toFixed(1)}s
-                  </span>
-                  <span className="text-right text-muted-foreground">
-                    {test.source_type}
-                  </span>
-                </div>
-              ))}
-          </div>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Time</TableHead>
+                <TableHead>Dir</TableHead>
+                <TableHead>Streams</TableHead>
+                <TableHead className="text-right">Speed</TableHead>
+                <TableHead className="text-right">Latency</TableHead>
+                <TableHead className="text-right">Transferred</TableHead>
+                <TableHead className="text-right">Duration</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {(history || [])
+                .slice(-30)
+                .reverse()
+                .map((test: any) => (
+                  <TableRow key={test.id}>
+                    <TableCell className="text-muted-foreground font-mono text-xs">
+                      {test.timestamp?.slice(11, 19)}
+                    </TableCell>
+                    <TableCell>
+                      <Badge
+                        variant={test.direction === "upload" ? "outline" : "secondary"}
+                        className="text-[10px] px-1"
+                      >
+                        {test.direction === "upload" ? "UL" : "DL"}
+                      </Badge>
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="outline" className="text-[10px] px-1">
+                        {test.stream_count}x
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="text-right font-semibold font-mono text-xs">
+                      {test.speed_mbps?.toFixed(0)} Mbps
+                    </TableCell>
+                    <TableCell className="text-right text-muted-foreground font-mono text-xs">
+                      {test.idle_latency_ms != null
+                        ? `${test.idle_latency_ms.toFixed(1)}ms`
+                        : "\u2014"}
+                    </TableCell>
+                    <TableCell className="text-right text-muted-foreground font-mono text-xs">
+                      {((test.bytes_transferred ?? test.bytes_downloaded) / 1024 / 1024).toFixed(1)} MB
+                    </TableCell>
+                    <TableCell className="text-right text-muted-foreground font-mono text-xs">
+                      {(test.duration_ms / 1000).toFixed(1)}s
+                    </TableCell>
+                  </TableRow>
+                ))}
+            </TableBody>
+          </Table>
         </CardContent>
       </Card>
     </div>

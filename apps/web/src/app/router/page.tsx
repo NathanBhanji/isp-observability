@@ -2,6 +2,7 @@ import { Metadata } from "next";
 import { fetchRouterLatest, fetchRouterHistory, fetchThroughputLatest, timeframeToSince } from "@/lib/collector";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 export const metadata: Metadata = { title: "Network Status" };
 
@@ -36,7 +37,7 @@ export default async function RouterPage({
   const interfaceThroughput = computeInterfaceThroughput(historyArr);
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 sm:p-6 space-y-6">
       <div>
         <h1 className="text-xl font-semibold tracking-tight">Network Status</h1>
         <p className="text-sm text-muted-foreground">
@@ -229,42 +230,55 @@ export default async function RouterPage({
             <CardTitle className="text-base">Recent History</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="space-y-1">
-              <div className="grid grid-cols-6 gap-2 text-[11px] font-medium text-muted-foreground px-2 py-1">
-                <span>Time</span>
-                <span>External IP</span>
-                <span>Gateway</span>
-                <span className="text-right">DNS</span>
-                <span className="text-right">RX Total</span>
-                <span className="text-right">TX Total</span>
-              </div>
-              {historyArr
-                .slice(-20)
-                .reverse()
-                .map((r: any) => (
-                  <div
-                    key={r.id}
-                    className="grid grid-cols-6 gap-2 text-xs font-mono px-2 py-1.5 rounded hover:bg-secondary/50"
-                  >
-                    <span className="text-muted-foreground">
-                      {r.timestamp?.slice(11, 19)}
-                    </span>
-                    <span>{r.external_ip || "—"}</span>
-                    <span className="text-muted-foreground">{r.gateway_ip || "—"}</span>
-                    <span className="text-right">
-                      {r.dns_resolve_ms !== null && r.dns_resolve_ms !== undefined
-                        ? `${r.dns_resolve_ms.toFixed(1)}ms`
-                        : "—"}
-                    </span>
-                    <span className="text-right">
-                      {r.interface_rx_bytes ? formatBytes(r.interface_rx_bytes) : "—"}
-                    </span>
-                    <span className="text-right">
-                      {r.interface_tx_bytes ? formatBytes(r.interface_tx_bytes) : "—"}
-                    </span>
-                  </div>
-                ))}
-            </div>
+            <Table>
+              <TableHeader>
+                <TableRow className="text-[11px]">
+                  <TableHead className="h-8 px-2">Time</TableHead>
+                  <TableHead className="h-8 px-2">External IP</TableHead>
+                  <TableHead className="h-8 px-2">Gateway</TableHead>
+                  <TableHead className="h-8 px-2 text-right">DNS</TableHead>
+                  <TableHead className="h-8 px-2 text-right">RX Total</TableHead>
+                  <TableHead className="h-8 px-2 text-right">TX Total</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {historyArr
+                  .slice(-20)
+                  .reverse()
+                  .map((r: any) => {
+                    const dnsMs = r.dns_resolve_ms;
+                    const isDnsAnomaly = dnsMs != null && dnsMs > 50;
+                    const isDnsSevere = dnsMs != null && dnsMs > 100;
+                    return (
+                      <TableRow
+                        key={r.id}
+                        className={`text-xs font-mono ${isDnsSevere ? "bg-destructive/5" : ""}`}
+                      >
+                        <TableCell className="px-2 py-1.5 text-muted-foreground">
+                          {r.timestamp?.slice(11, 19)}
+                        </TableCell>
+                        <TableCell className="px-2 py-1.5">
+                          {r.external_ip || "—"}
+                        </TableCell>
+                        <TableCell className="px-2 py-1.5 text-muted-foreground">
+                          {r.gateway_ip || "—"}
+                        </TableCell>
+                        <TableCell className={`px-2 py-1.5 text-right ${isDnsSevere ? "text-destructive font-semibold" : isDnsAnomaly ? "text-warning font-semibold" : ""}`}>
+                          {dnsMs !== null && dnsMs !== undefined
+                            ? `${dnsMs.toFixed(1)}ms`
+                            : "—"}
+                        </TableCell>
+                        <TableCell className="px-2 py-1.5 text-right">
+                          {r.interface_rx_bytes ? formatBytes(r.interface_rx_bytes) : "—"}
+                        </TableCell>
+                        <TableCell className="px-2 py-1.5 text-right">
+                          {r.interface_tx_bytes ? formatBytes(r.interface_tx_bytes) : "—"}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+              </TableBody>
+            </Table>
           </CardContent>
         </Card>
       )}

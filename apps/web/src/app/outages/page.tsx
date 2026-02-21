@@ -1,8 +1,17 @@
 import { Metadata } from "next";
-import { fetchOutageSummary, fetchOutages, timeframeToSince } from "@/lib/collector";
+import { fetchOutageSummary, fetchOutages, fetchLatencyHistory, timeframeToSince } from "@/lib/collector";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { KpiCard } from "@/components/dashboard/kpi-card";
+import { HeartbeatTimeline } from "@/components/charts/heartbeat-timeline";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 
 export const metadata: Metadata = { title: "Connectivity Outages" };
 
@@ -19,8 +28,15 @@ export default async function OutagesPage({
     fetchOutages(since),
   ]);
 
+  // Calculate uptime percentage
+  const periodMs = since
+    ? Date.now() - new Date(since).getTime()
+    : 30 * 24 * 60 * 60 * 1000; // default 30 days
+  const totalDownMs = summary?.totalDurationMs ?? 0;
+  const uptimePct = periodMs > 0 ? ((periodMs - totalDownMs) / periodMs * 100) : 100;
+
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 sm:p-6 space-y-6">
       <div>
         <h1 className="text-xl font-semibold tracking-tight">Connectivity Outages</h1>
         <p className="text-sm text-muted-foreground">
@@ -28,8 +44,26 @@ export default async function OutagesPage({
         </p>
       </div>
 
+      {/* Heartbeat timeline */}
+      <HeartbeatTimeline
+        outages={outageList || []}
+        periodHours={since ? Math.max(1, (Date.now() - new Date(since).getTime()) / 3600000) : 24}
+        since={since}
+      />
+
       {/* KPI Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
+        <KpiCard
+          title="Uptime"
+          value={`${uptimePct.toFixed(3)}%`}
+          badge={
+            uptimePct >= 99.9
+              ? { text: "EXCELLENT", variant: "secondary" }
+              : uptimePct >= 99
+                ? { text: "GOOD", variant: "secondary" }
+                : { text: "DEGRADED", variant: "destructive" }
+          }
+        />
         <KpiCard
           title="Total Outages"
           value={String(summary?.totalOutages ?? 0)}
@@ -61,14 +95,6 @@ export default async function OutagesPage({
           }
         />
         <KpiCard
-          title="Avg Duration"
-          value={
-            summary?.avgMs
-              ? `${(summary.avgMs / 1000).toFixed(1)}s`
-              : "0s"
-          }
-        />
-        <KpiCard
           title="Missed Pings"
           value={String(summary?.totalMissedPings ?? 0)}
           subtitle="Total failed heartbeats"
@@ -85,50 +111,52 @@ export default async function OutagesPage({
         </CardHeader>
         <CardContent>
           {(outageList || []).length > 0 ? (
-            <div className="space-y-1">
-              <div className="grid grid-cols-5 gap-2 text-[11px] font-medium text-muted-foreground px-2 py-1">
-                <span>Date</span>
-                <span>Started</span>
-                <span>Ended</span>
-                <span className="text-right">Duration</span>
-                <span className="text-right">Missed Pings</span>
-              </div>
-              {(outageList || []).map((outage: any) => (
-                <div
-                  key={outage.id}
-                  className="grid grid-cols-5 gap-2 text-xs font-mono px-2 py-1.5 rounded hover:bg-secondary/50"
-                >
-                  <span className="text-muted-foreground">
-                    {outage.started_at?.slice(0, 10)}
-                  </span>
-                  <span>
-                    {outage.started_at?.slice(11, 19)}
-                  </span>
-                  <span className="text-muted-foreground">
-                    {outage.ended_at?.slice(11, 19) || (
-                      <Badge variant="destructive" className="text-[10px]">ONGOING</Badge>
-                    )}
-                  </span>
-                  <span className="text-right">
-                    {outage.duration_ms > 0
-                      ? outage.duration_ms >= 60000
-                        ? `${(outage.duration_ms / 60000).toFixed(1)}m`
-                        : `${(outage.duration_ms / 1000).toFixed(1)}s`
-                      : "—"}
-                  </span>
-                  <span className="text-right text-muted-foreground">
-                    {outage.missed_pings}
-                  </span>
-                </div>
-              ))}
-            </div>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Date</TableHead>
+                  <TableHead>Started</TableHead>
+                  <TableHead>Ended</TableHead>
+                  <TableHead className="text-right">Duration</TableHead>
+                  <TableHead className="text-right">Missed Pings</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(outageList || []).map((outage: any) => (
+                  <TableRow key={outage.id}>
+                    <TableCell className="text-muted-foreground font-mono text-xs">
+                      {outage.started_at?.slice(0, 10)}
+                    </TableCell>
+                    <TableCell className="font-mono text-xs">
+                      {outage.started_at?.slice(11, 19)}
+                    </TableCell>
+                    <TableCell className="text-muted-foreground font-mono text-xs">
+                      {outage.ended_at?.slice(11, 19) || (
+                        <Badge variant="destructive" className="text-[10px]">ONGOING</Badge>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right font-mono text-xs">
+                      {outage.duration_ms > 0
+                        ? outage.duration_ms >= 60000
+                          ? `${(outage.duration_ms / 60000).toFixed(1)}m`
+                          : `${(outage.duration_ms / 1000).toFixed(1)}s`
+                        : "\u2014"}
+                    </TableCell>
+                    <TableCell className="text-right text-muted-foreground font-mono text-xs">
+                      {outage.missed_pings}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
           ) : (
             <div className="py-8 text-center">
-              <p className="text-sm text-muted-foreground">
-                No outages detected. Gateway connectivity has been stable.
+              <div className="text-4xl mb-3 text-success">&#x2714;</div>
+              <p className="text-sm font-medium">
+                No outages detected
               </p>
               <p className="text-xs text-muted-foreground mt-1">
-                Monitoring every 5 seconds — outages of 15+ seconds will appear here.
+                Gateway connectivity has been stable. Monitoring every 5 seconds — outages of 15+ seconds will appear here.
               </p>
             </div>
           )}

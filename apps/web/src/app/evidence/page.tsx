@@ -2,9 +2,14 @@ import { Metadata } from "next";
 import { fetchEvidenceSummary, timeframeToSince } from "@/lib/collector";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { THRESHOLDS, TARGET_LABELS, TARGET_IPS } from "@isp/shared";
 
-export const metadata: Metadata = { title: "Evidence Report" };
+export const metadata: Metadata = { title: "Measurement Summary" };
+
+function pluralize(n: number, singular: string, plural?: string): string {
+  return n === 1 ? `${n} ${singular}` : `${n} ${plural || singular + "s"}`;
+}
 
 export default async function EvidencePage({
   searchParams,
@@ -16,27 +21,39 @@ export default async function EvidencePage({
 
   const evidence = await fetchEvidenceSummary(since);
 
+  // Compute observation period in human-friendly form
+  const periodStart = evidence?.collectionPeriod?.start;
+  const periodEnd = evidence?.collectionPeriod?.end;
+  let periodDuration = "";
+  if (periodStart && periodEnd) {
+    const ms = new Date(periodEnd).getTime() - new Date(periodStart).getTime();
+    const days = Math.floor(ms / 86400000);
+    const hours = Math.floor((ms % 86400000) / 3600000);
+    if (days > 0) periodDuration = `${pluralize(days, "day")}, ${pluralize(hours, "hour")}`;
+    else periodDuration = pluralize(hours, "hour");
+  }
+
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 sm:p-6 space-y-6">
       <div>
-        <h1 className="text-xl font-semibold tracking-tight">Evidence Report</h1>
+        <h1 className="text-xl font-semibold tracking-tight">Measurement Summary</h1>
         <p className="text-sm text-muted-foreground">
-          Collected measurements and observations
+          Collected measurements, observations, and derived findings
         </p>
       </div>
 
-      {/* Collection period */}
-      <Card>
+      {/* Executive summary */}
+      <Card className="border-primary/20 bg-primary/5">
         <CardContent className="pt-4">
-          <div className="flex items-center gap-4 text-xs text-muted-foreground font-mono">
-            <span>Collection period:</span>
-            <span>{evidence?.collectionPeriod?.start?.slice(0, 19) || "N/A"}</span>
-            <span>to</span>
-            <span>{evidence?.collectionPeriod?.end?.slice(0, 19) || "N/A"}</span>
-            <span className="ml-auto">
-              {evidence?.collectionPeriod?.totalPingWindows || 0} ping windows,{" "}
-              {evidence?.collectionPeriod?.totalThroughputTests || 0} throughput tests
-            </span>
+          <div className="flex flex-col sm:flex-row sm:items-center gap-4 text-xs text-muted-foreground font-mono">
+            <div className="flex items-center gap-2">
+              <span className="font-medium text-foreground">Collection period:</span>
+              <span>{periodDuration || "N/A"}</span>
+            </div>
+            <div className="flex items-center gap-4 sm:ml-auto">
+              <span>{evidence?.collectionPeriod?.totalPingWindows || 0} ping windows</span>
+              <span>{evidence?.collectionPeriod?.totalThroughputTests || 0} throughput tests</span>
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -54,26 +71,29 @@ export default async function EvidencePage({
         </CardHeader>
         <CardContent className="space-y-4">
           {evidence?.hopComparison?.hops?.length > 0 ? (
-            <>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {evidence.hopComparison.hops.map((hop: any) => (
-                  <div key={hop.targetId} className="rounded-lg border border-border p-4 space-y-2">
-                    <div className="text-xs text-muted-foreground">
-                      {hop.label} ({hop.ip})
-                    </div>
-                    <div className="text-lg font-bold font-mono">
-                      stddev {hop.stddev.toFixed(2)}ms
-                    </div>
-                    <div className="text-xs font-mono text-muted-foreground">
-                      {hop.spikes15msPct.toFixed(1)}% spikes &gt;15ms
-                    </div>
-                    <div className="text-xs font-mono text-muted-foreground">
-                      Mean RTT: {hop.meanRtt.toFixed(2)}ms
-                    </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {evidence.hopComparison.hops.map((hop: any) => (
+                <div key={hop.targetId} className="rounded-lg border border-border p-4 space-y-2">
+                  <div className="text-xs text-muted-foreground">
+                    {hop.label} ({hop.ip})
                   </div>
-                ))}
-              </div>
-            </>
+                  <div className="text-lg font-bold font-mono">
+                    stddev {hop.stddev.toFixed(2)}ms
+                  </div>
+                  <div className="grid grid-cols-2 gap-1 text-[11px] font-mono text-muted-foreground">
+                    <span>Mean RTT: {hop.meanRtt.toFixed(2)}ms</span>
+                    <span>Spikes: {hop.spikes15msPct.toFixed(1)}%</span>
+                  </div>
+                  {/* Visual indicator bar */}
+                  <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                    <div
+                      className={`h-full rounded-full ${hop.stddev > THRESHOLDS.maxAcceptableStddev ? "bg-destructive" : "bg-success"}`}
+                      style={{ width: `${Math.min(100, (hop.stddev / 5) * 100)}%` }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
           ) : (
             <p className="text-sm text-muted-foreground">
               Insufficient data. Continue collecting to populate this section.
@@ -82,21 +102,21 @@ export default async function EvidencePage({
         </CardContent>
       </Card>
 
-      {/* 2: Throughput — Multi-Stream DL vs UL */}
+      {/* 2: Throughput & Policing Evidence (merged sections 2+7) */}
       <Card>
         <CardHeader>
           <div className="flex items-center gap-2">
             <Badge variant="outline">2</Badge>
-            <CardTitle className="text-base">Multi-Stream Throughput</CardTitle>
+            <CardTitle className="text-base">Throughput & Policing Evidence</CardTitle>
           </div>
           <CardDescription>
-            Parallel ({4}-stream) download vs upload — representative of actual link capacity
+            Download vs upload performance and per-flow policing detection
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {evidence?.throughputPolicing ? (
             <>
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
                 <div className="rounded-lg border border-border p-4">
                   <div className="text-xs text-muted-foreground">Download (Multi)</div>
                   <div className="text-lg font-bold font-mono">
@@ -119,7 +139,7 @@ export default async function EvidencePage({
                   <div className="text-xs text-muted-foreground">DL / UL Ratio</div>
                   <div className="text-lg font-bold font-mono">
                     {evidence.throughputPolicing.dlUlRatio != null
-                      ? `${evidence.throughputPolicing.dlUlRatio.toFixed(1)}x`
+                      ? `${evidence.throughputPolicing.dlUlRatio.toFixed(2)}x`
                       : "N/A"}
                   </div>
                 </div>
@@ -136,28 +156,46 @@ export default async function EvidencePage({
                       Above {THRESHOLDS.policingRatio}x threshold
                     </div>
                   )}
-                  {evidence.throughputPolicing.decayDetected && (
-                    <div className="text-[10px] text-muted-foreground mt-1">Decay pattern observed</div>
-                  )}
                 </div>
+                {evidence.throughputPolicing.singleStreamMean != null && (
+                  <div className="rounded-lg border border-border p-4">
+                    <div className="text-xs text-muted-foreground">Single Stream (DL)</div>
+                    <div className="text-lg font-bold font-mono">
+                      {evidence.throughputPolicing.singleStreamMean.toFixed(0)} Mbps
+                    </div>
+                  </div>
+                )}
               </div>
-              <p className="text-sm text-muted-foreground">
-                Multi-stream download averages{" "}
-                <strong className="text-foreground">
-                  {(evidence.throughputPolicing.multiDownloadMean ?? 0).toFixed(0)} Mbps
-                </strong>
-                , upload averages{" "}
-                <strong className="text-foreground">
-                  {(evidence.throughputPolicing.multiUploadMean ?? 0).toFixed(0)} Mbps
-                </strong>
-                .
-                {evidence.throughputPolicing.policingRatio != null &&
-                  evidence.throughputPolicing.policingRatio > THRESHOLDS.policingRatio
-                  ? ` Multi/single download ratio of ${evidence.throughputPolicing.policingRatio.toFixed(2)}x exceeds the ${THRESHOLDS.policingRatio}x threshold, which may indicate per-flow rate limiting.`
-                  : evidence.throughputPolicing.singleStreamMean != null
-                    ? ` Single-stream download: ${evidence.throughputPolicing.singleStreamMean.toFixed(0)} Mbps.`
-                    : ""}
-              </p>
+
+              {/* Visual comparison bars */}
+              {evidence.throughputPolicing.multiDownloadMean > 0 && evidence.throughputPolicing.multiUploadMean > 0 && (
+                <div className="space-y-2">
+                  <div className="text-xs text-muted-foreground">Throughput Comparison</div>
+                  {[
+                    { label: "DL Multi", value: evidence.throughputPolicing.multiDownloadMean, color: "bg-chart-1" },
+                    { label: "DL Single", value: evidence.throughputPolicing.singleStreamMean || 0, color: "bg-chart-1/50" },
+                    { label: "UL Multi", value: evidence.throughputPolicing.multiUploadMean, color: "bg-chart-4" },
+                  ].filter(b => b.value > 0).map((bar) => {
+                    const maxVal = Math.max(
+                      evidence.throughputPolicing.multiDownloadMean,
+                      evidence.throughputPolicing.multiUploadMean,
+                      evidence.throughputPolicing.singleStreamMean || 0
+                    );
+                    return (
+                      <div key={bar.label} className="flex items-center gap-2">
+                        <span className="text-[10px] text-muted-foreground w-16 text-right">{bar.label}</span>
+                        <div className="flex-1 h-4 bg-muted rounded overflow-hidden">
+                          <div
+                            className={`h-full ${bar.color} rounded`}
+                            style={{ width: `${(bar.value / maxVal) * 100}%` }}
+                          />
+                        </div>
+                        <span className="text-[10px] font-mono w-16">{bar.value.toFixed(0)} Mbps</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </>
           ) : (
             <p className="text-sm text-muted-foreground">
@@ -181,10 +219,34 @@ export default async function EvidencePage({
         <CardContent className="space-y-4">
           {evidence?.correlation ? (
             <>
-              <div className="rounded-lg border border-border p-4 inline-block">
-                <div className="text-xs text-muted-foreground">Pearson r</div>
-                <div className="text-2xl font-bold font-mono mt-1">
-                  r = {(evidence.correlation.pearsonR ?? 0).toFixed(3)}
+              <div className="flex items-center gap-4">
+                <div className="rounded-lg border border-border p-4 inline-block">
+                  <div className="text-xs text-muted-foreground">Pearson r</div>
+                  <div className={`text-2xl font-bold font-mono mt-1 ${
+                    Math.abs(evidence.correlation.pearsonR ?? 0) < 0.1 ? "text-muted-foreground"
+                    : Math.abs(evidence.correlation.pearsonR ?? 0) < 0.3 ? "text-success"
+                    : Math.abs(evidence.correlation.pearsonR ?? 0) < 0.5 ? "text-warning"
+                    : "text-destructive"
+                  }`}>
+                    r = {(evidence.correlation.pearsonR ?? 0).toFixed(3)}
+                  </div>
+                </div>
+                {/* Visual gauge */}
+                <div className="flex-1 space-y-1">
+                  <div className="h-2 rounded-full bg-muted overflow-hidden">
+                    <div
+                      className={`h-full rounded-full ${
+                        Math.abs(evidence.correlation.pearsonR ?? 0) < 0.3 ? "bg-success"
+                        : Math.abs(evidence.correlation.pearsonR ?? 0) < 0.5 ? "bg-warning"
+                        : "bg-destructive"
+                      }`}
+                      style={{ width: `${Math.abs(evidence.correlation.pearsonR ?? 0) * 100}%` }}
+                    />
+                  </div>
+                  <div className="flex justify-between text-[10px] text-muted-foreground">
+                    <span>No correlation</span>
+                    <span>Strong</span>
+                  </div>
                 </div>
               </div>
               <p className="text-sm text-muted-foreground">
@@ -266,46 +328,62 @@ export default async function EvidencePage({
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {evidence?.packetLoss?.perTarget ? (
-            <div className="space-y-1">
-              <div className="grid grid-cols-5 gap-2 text-[11px] font-medium text-muted-foreground px-2 py-1">
-                <span>Target</span>
-                <span className="text-right">Avg Loss</span>
-                <span className="text-right">Max Loss</span>
-                <span className="text-right">Windows</span>
-                <span className="text-right">Status</span>
-              </div>
-              {Object.entries(evidence.packetLoss.perTarget).map(([target, data]: [string, any]) => {
-                const isHigh = data.avgLoss > THRESHOLDS.maxAcceptableLoss;
-                return (
-                  <div
-                    key={target}
-                    className="grid grid-cols-5 gap-2 text-xs font-mono px-2 py-1.5 rounded hover:bg-secondary/50"
-                  >
-                    <span>{TARGET_LABELS[target] || target}</span>
-                    <span className={`text-right ${isHigh ? "text-destructive font-semibold" : ""}`}>
-                      {data.avgLoss.toFixed(2)}%
-                    </span>
-                    <span className="text-right text-muted-foreground">
-                      {data.maxLoss.toFixed(1)}%
-                    </span>
-                    <span className="text-right text-muted-foreground">
-                      {data.windows}
-                    </span>
-                    <span className="text-right">
-                      {isHigh ? (
-                        <Badge variant="destructive" className="text-[10px]">
-                          &gt;{THRESHOLDS.maxAcceptableLoss}%
-                        </Badge>
-                      ) : (
-                        <Badge variant="secondary" className="text-[10px]">OK</Badge>
-                      )}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          ) : (
+          {evidence?.packetLoss?.perTarget ? (() => {
+            const allZero = Object.values(evidence.packetLoss.perTarget).every((d: any) => d.avgLoss === 0);
+            if (allZero) {
+              return (
+                <div className="flex items-center gap-2 py-2">
+                  <Badge variant="secondary" className="text-[10px]">0% LOSS</Badge>
+                  <span className="text-sm text-muted-foreground">
+                    No packet loss detected on any target across all measurement windows.
+                  </span>
+                </div>
+              );
+            }
+            return (
+              <Table>
+                <TableHeader>
+                  <TableRow className="text-[11px]">
+                    <TableHead className="h-8 px-2">Target</TableHead>
+                    <TableHead className="h-8 px-2 text-right">Avg Loss</TableHead>
+                    <TableHead className="h-8 px-2 text-right">Max Loss</TableHead>
+                    <TableHead className="h-8 px-2 text-right">Windows</TableHead>
+                    <TableHead className="h-8 px-2 text-right">Status</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {Object.entries(evidence.packetLoss.perTarget).map(([target, data]: [string, any]) => {
+                    const isHigh = data.avgLoss > THRESHOLDS.maxAcceptableLoss;
+                    return (
+                      <TableRow key={target} className="text-xs font-mono">
+                        <TableCell className="px-2 py-1.5">
+                          {TARGET_LABELS[target] || target}
+                        </TableCell>
+                        <TableCell className={`px-2 py-1.5 text-right ${isHigh ? "text-destructive font-semibold" : ""}`}>
+                          {data.avgLoss.toFixed(2)}%
+                        </TableCell>
+                        <TableCell className="px-2 py-1.5 text-right text-muted-foreground">
+                          {data.maxLoss.toFixed(1)}%
+                        </TableCell>
+                        <TableCell className="px-2 py-1.5 text-right text-muted-foreground">
+                          {data.windows}
+                        </TableCell>
+                        <TableCell className="px-2 py-1.5 text-right">
+                          {isHigh ? (
+                            <Badge variant="destructive" className="text-[10px]">
+                              &gt;{THRESHOLDS.maxAcceptableLoss}%
+                            </Badge>
+                          ) : (
+                            <Badge variant="secondary" className="text-[10px]">OK</Badge>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            );
+          })() : (
             <p className="text-sm text-muted-foreground">
               Insufficient data. Continue collecting to populate this section.
             </p>
@@ -420,62 +498,11 @@ export default async function EvidencePage({
         </CardContent>
       </Card>
 
-      {/* 7: Upload vs Download */}
+      {/* 7: Hop Latency Trending */}
       <Card>
         <CardHeader>
           <div className="flex items-center gap-2">
             <Badge variant="outline">7</Badge>
-            <CardTitle className="text-base">Upload vs Download</CardTitle>
-          </div>
-          <CardDescription>
-            Multi-stream upload and download throughput comparison
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {evidence?.uploadEvidence ? (
-            <>
-              <div className="grid grid-cols-3 gap-4">
-                <div className="rounded-lg border border-border p-4">
-                  <div className="text-xs text-muted-foreground">Download Mean</div>
-                  <div className="text-lg font-bold font-mono">
-                    {evidence.uploadEvidence.downloadMean.toFixed(0)} Mbps
-                  </div>
-                  <div className="text-[10px] text-muted-foreground">
-                    {evidence.uploadEvidence.downloadTests} tests
-                  </div>
-                </div>
-                <div className="rounded-lg border border-border p-4">
-                  <div className="text-xs text-muted-foreground">Upload Mean</div>
-                  <div className="text-lg font-bold font-mono">
-                    {evidence.uploadEvidence.uploadMean.toFixed(0)} Mbps
-                  </div>
-                  <div className="text-[10px] text-muted-foreground">
-                    {evidence.uploadEvidence.uploadTests} tests
-                  </div>
-                </div>
-                <div className="rounded-lg border border-border p-4">
-                  <div className="text-xs text-muted-foreground">DL / UL Ratio</div>
-                  <div className="text-lg font-bold font-mono">
-                    {evidence.uploadEvidence.ratio != null
-                      ? `${evidence.uploadEvidence.ratio.toFixed(1)}x`
-                      : "N/A"}
-                  </div>
-                </div>
-              </div>
-            </>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              Insufficient data. Upload testing results will appear after the next collection cycle.
-            </p>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* 8: Hop Latency Trending */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center gap-2">
-            <Badge variant="outline">8</Badge>
             <CardTitle className="text-base">Hop Latency Over Time</CardTitle>
           </div>
           <CardDescription>
@@ -489,7 +516,7 @@ export default async function EvidencePage({
                 <div className="rounded-lg border border-border p-4">
                   <div className="text-xs text-muted-foreground">Observation Period</div>
                   <div className="text-lg font-bold font-mono">
-                    {evidence.hopTrending.periodDays} days
+                    {pluralize(evidence.hopTrending.periodDays, "day")}
                   </div>
                 </div>
                 <div className="rounded-lg border border-border p-4">
@@ -554,11 +581,11 @@ export default async function EvidencePage({
         </CardContent>
       </Card>
 
-      {/* 9: Micro-Outages */}
+      {/* 8: Micro-Outages */}
       <Card>
         <CardHeader>
           <div className="flex items-center gap-2">
-            <Badge variant="outline">9</Badge>
+            <Badge variant="outline">8</Badge>
             <CardTitle className="text-base">Connectivity Outages</CardTitle>
           </div>
           <CardDescription>
@@ -568,7 +595,7 @@ export default async function EvidencePage({
         <CardContent className="space-y-4">
           {evidence?.outageSummary ? (
             <>
-              <div className="grid grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                 <div className="rounded-lg border border-border p-4">
                   <div className="text-xs text-muted-foreground">Total Outages</div>
                   <div className={`text-lg font-bold font-mono ${evidence.outageSummary.count > 0 ? "text-destructive" : ""}`}>
@@ -596,22 +623,36 @@ export default async function EvidencePage({
               </div>
 
               {evidence.outageSummary.recent.length > 0 && (
-                <div className="space-y-1">
+                <div>
                   <div className="text-xs font-medium text-muted-foreground mb-1">Recent Outages</div>
-                  <div className="grid grid-cols-4 gap-2 text-[11px] font-medium text-muted-foreground px-2 py-1">
-                    <span>Started</span>
-                    <span>Ended</span>
-                    <span className="text-right">Duration</span>
-                    <span className="text-right">Missed</span>
-                  </div>
-                  {evidence.outageSummary.recent.map((o: any, i: number) => (
-                    <div key={i} className="grid grid-cols-4 gap-2 text-xs font-mono px-2 py-1 rounded hover:bg-secondary/50">
-                      <span>{o.startedAt?.slice(11, 19) || "?"}</span>
-                      <span className="text-muted-foreground">{o.endedAt?.slice(11, 19) || "ongoing"}</span>
-                      <span className="text-right">{(o.durationMs / 1000).toFixed(1)}s</span>
-                      <span className="text-right text-muted-foreground">{o.missedPings}</span>
-                    </div>
-                  ))}
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="text-[11px]">
+                        <TableHead className="h-8 px-2">Started</TableHead>
+                        <TableHead className="h-8 px-2">Ended</TableHead>
+                        <TableHead className="h-8 px-2 text-right">Duration</TableHead>
+                        <TableHead className="h-8 px-2 text-right">Missed</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {evidence.outageSummary.recent.map((o: any, i: number) => (
+                        <TableRow key={i} className="text-xs font-mono">
+                          <TableCell className="px-2 py-1">
+                            {o.startedAt?.slice(11, 19) || "?"}
+                          </TableCell>
+                          <TableCell className="px-2 py-1 text-muted-foreground">
+                            {o.endedAt?.slice(11, 19) || "ongoing"}
+                          </TableCell>
+                          <TableCell className="px-2 py-1 text-right">
+                            {(o.durationMs / 1000).toFixed(1)}s
+                          </TableCell>
+                          <TableCell className="px-2 py-1 text-right text-muted-foreground">
+                            {o.missedPings}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
                 </div>
               )}
             </>

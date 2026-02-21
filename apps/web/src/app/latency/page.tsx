@@ -3,7 +3,9 @@ import { fetchLatencyLatest, fetchLatencyHistory, timeframeToSince } from "@/lib
 import { PING_TARGETS, TARGET_LABELS } from "@isp/shared";
 import { LatencyTimeline } from "@/components/charts/latency-timeline";
 import { HopComparison } from "@/components/charts/hop-comparison";
+import { LatencyHeatmap } from "@/components/charts/latency-heatmap";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Badge } from "@/components/ui/badge";
 
 export const metadata: Metadata = { title: "Latency Analysis" };
 
@@ -20,12 +22,16 @@ export default async function LatencyPage({
     fetchLatencyHistory(since),
   ]);
 
-  // Compare adjacent hops (hop 2 vs hop 3)
-  const hopA = (latest || []).find((p: any) => p.target_id === "aggregation");
-  const hopB = (latest || []).find((p: any) => p.target_id === "bcube");
+  // Sort targets by hop order for consistent display
+  const sortedTargets = [...PING_TARGETS].sort((a, b) => a.hop - b.hop);
+
+  // Sort latest pings by hop order
+  const sortedLatest = sortedTargets.map((target) =>
+    (latest || []).find((p: any) => p.target_id === target.id)
+  ).filter(Boolean);
 
   return (
-    <div className="p-6 space-y-6">
+    <div className="p-4 sm:p-6 space-y-6">
       <div>
         <h1 className="text-xl font-semibold tracking-tight">Latency Analysis</h1>
         <p className="text-sm text-muted-foreground">
@@ -55,23 +61,35 @@ export default async function LatencyPage({
         </TabsContent>
       </Tabs>
 
-      {/* Adjacent hop comparison */}
-      <HopComparison hopA={hopA} hopB={hopB} hopAId="aggregation" hopBId="bcube" />
+      {/* Latency heatmap */}
+      <LatencyHeatmap data={history || []} />
 
-      {/* Latest stats for all hops */}
+      {/* Selectable hop comparison */}
+      <HopComparison allHops={latest || []} />
+
+      {/* Latest stats for all hops — sorted by hop order */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
-        {(latest || []).map((p: any) => {
+        {sortedLatest.map((p: any) => {
+          const isV6 = p.target_id?.includes("_v6");
+          const isDown = isV6 && p.loss_pct === 100;
           return (
             <div
               key={p.target_id}
-              className="rounded-lg border border-border bg-card p-4 space-y-2"
+              className={`rounded-lg border border-border bg-card p-4 space-y-2 ${isDown ? "opacity-50" : ""}`}
             >
               <div className="flex items-center justify-between">
                 <span className="text-xs font-medium">{TARGET_LABELS[p.target_id] || p.target_id}</span>
                 <span className="text-[10px] font-mono text-muted-foreground">{p.target_ip}</span>
               </div>
-              <div className="text-lg font-bold font-mono">
-                {p.rtt_p50 != null ? `${p.rtt_p50.toFixed(1)}ms` : "N/A"}
+              <div className="flex items-center gap-2">
+                <div className="text-lg font-bold font-mono">
+                  {p.rtt_p50 != null ? `${p.rtt_p50.toFixed(1)}ms` : "N/A"}
+                </div>
+                {isDown && (
+                  <Badge variant="destructive" className="text-[10px]">
+                    UNREACHABLE
+                  </Badge>
+                )}
               </div>
               <div className="grid grid-cols-2 gap-1 text-[11px] text-muted-foreground font-mono">
                 <span>min: {p.rtt_min?.toFixed(1) ?? "\u2014"}ms</span>

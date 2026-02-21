@@ -3,6 +3,7 @@ import { fetchCorrelationLatest, fetchCorrelationHistory, timeframeToSince } fro
 import { TARGET_LABELS } from "@isp/shared";
 import { CorrelationScatter } from "@/components/charts/correlation-scatter";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 export const metadata: Metadata = { title: "Throughput-Latency Correlation" };
 
@@ -39,9 +40,10 @@ export default async function CorrelationPage({
         </p>
       </div>
 
-      {/* Main scatter plot */}
+      {/* Main scatter plot — now shows all 3 hops as tabs */}
       <CorrelationScatter
         samples={samples}
+        correlations={correlations}
         pearsonR={pearsonR}
         targetId={primaryTarget}
       />
@@ -107,31 +109,43 @@ export default async function CorrelationPage({
             <CardDescription>Correlation values over time</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="space-y-1">
-              <div className="grid grid-cols-4 gap-2 text-[11px] font-medium text-muted-foreground px-2 py-1">
-                <span>Time</span>
-                <span>Target</span>
-                <span className="text-right">Pearson r</span>
-                <span className="text-right">Session</span>
-              </div>
-              {(history || []).map((h: any, i: number) => (
-                <div
-                  key={i}
-                  className="grid grid-cols-4 gap-2 text-xs font-mono px-2 py-1.5 rounded hover:bg-secondary/50"
-                >
-                  <span className="text-muted-foreground">
-                    {h.timestamp?.slice(11, 19)}
-                  </span>
-                  <span>{TARGET_LABELS[h.target_id] || h.target_id}</span>
-                  <span className="text-right font-semibold">
-                    {h.pearson_r?.toFixed(3) ?? "N/A"}
-                  </span>
-                  <span className="text-right text-muted-foreground">
-                    {h.session_id?.slice(0, 8)}
-                  </span>
-                </div>
-              ))}
-            </div>
+            <Table>
+              <TableHeader>
+                <TableRow className="text-[11px]">
+                  <TableHead className="h-8 px-2">Time</TableHead>
+                  <TableHead className="h-8 px-2">Target</TableHead>
+                  <TableHead className="h-8 px-2 text-right">Pearson r</TableHead>
+                  <TableHead className="h-8 px-2 text-right">Session</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(history || []).map((h: any, i: number) => {
+                  const r = h.pearson_r;
+                  const absR = r != null ? Math.abs(r) : 0;
+                  const rColor = r == null ? "" 
+                    : absR < 0.1 ? "text-muted-foreground"
+                    : absR < 0.3 ? "text-success"
+                    : absR < 0.5 ? "text-warning"
+                    : "text-destructive";
+                  return (
+                    <TableRow key={i} className="text-xs font-mono">
+                      <TableCell className="px-2 py-1.5 text-muted-foreground">
+                        {h.timestamp?.slice(11, 19)}
+                      </TableCell>
+                      <TableCell className="px-2 py-1.5">
+                        {TARGET_LABELS[h.target_id] || h.target_id}
+                      </TableCell>
+                      <TableCell className={`px-2 py-1.5 text-right font-semibold ${rColor}`}>
+                        {h.pearson_r?.toFixed(3) ?? "N/A"}
+                      </TableCell>
+                      <TableCell className="px-2 py-1.5 text-right text-muted-foreground">
+                        {h.session_id?.slice(0, 8)}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
           </CardContent>
         </Card>
       )}

@@ -176,7 +176,18 @@ export function initializeDatabase(db: Database): void {
   migrateBytesColumn(db);
   migrateRipeAtlasResults(db);
   migrateRipeMeasuredAt(db);
+  migrateThroughputLatency(db);
 
+}
+
+/** Add idle_latency_ms column to throughput_tests (idempotent). */
+function migrateThroughputLatency(db: Database): void {
+  const existing = db.prepare("PRAGMA table_info(throughput_tests)").all() as { name: string }[];
+  const names = new Set(existing.map((c) => c.name));
+
+  if (!names.has("idle_latency_ms")) {
+    db.exec(`ALTER TABLE throughput_tests ADD COLUMN idle_latency_ms REAL`);
+  }
 }
 
 /** Add direction column to existing throughput_tests tables (idempotent). */

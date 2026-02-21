@@ -8,6 +8,7 @@ export interface DownloadResult {
   durationMs: number;
   speedMbps: number;
   timeseries: { secondOffset: number; bytesThisSecond: number; speedMbps: number }[];
+  idleLatencyMs?: number | null;
 }
 
 /**

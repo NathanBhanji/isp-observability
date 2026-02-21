@@ -5,6 +5,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 import { PING_TARGETS, DESTINATION_LABELS } from "@isp/shared";
 
@@ -319,121 +320,117 @@ export function MultiPeerComparison({ destination, yours, peers }: MultiPeerComp
       </CardHeader>
 
       <CardContent>
-        {/* Column headers */}
-        <div className="grid grid-cols-[2rem_1fr_4rem_1fr_3rem] gap-x-2 px-1 py-1 text-[10px] font-medium text-muted-foreground border-b border-border mb-1">
-          <span className="text-right">#</span>
-          <span>Your Path</span>
-          <span className="text-right">RTT</span>
-          <span>Peer Consensus ({peerCount})</span>
-          <span className="text-right">n</span>
-        </div>
+        <Table className="text-xs font-mono">
+          <TableHeader>
+            <TableRow className="text-[10px]">
+              <TableHead className="h-7 px-1 w-8 text-right">#</TableHead>
+              <TableHead className="h-7 px-1">Your Path</TableHead>
+              <TableHead className="h-7 px-1 w-16 text-right">RTT</TableHead>
+              <TableHead className="h-7 px-1">Peer Consensus ({peerCount})</TableHead>
+              <TableHead className="h-7 px-1 w-12 text-right">n</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {collapsed.map((item) => {
+              if ("_darkRange" in item) {
+                return (
+                  <TableRow key={`dark-${item.start}`} className="border-0">
+                    <TableCell className="px-1 py-0.5 text-right text-[10px] text-muted-foreground/30">
+                      {item.count > 1 ? `${item.start}-${item.end}` : item.start}
+                    </TableCell>
+                    <TableCell colSpan={4} className="px-1 py-0.5 text-[10px] text-muted-foreground/30 italic">
+                      {item.count} dark hop{item.count > 1 ? "s" : ""} (all paths)
+                    </TableCell>
+                  </TableRow>
+                );
+              }
 
-        {collapsed.map((item) => {
-          if ("_darkRange" in item) {
-            return (
-              <div
-                key={`dark-${item.start}`}
-                className="grid grid-cols-[2rem_1fr] gap-x-2 px-1 py-0.5"
-              >
-                <span className="text-right text-[10px] text-muted-foreground/30 font-mono">
-                  {item.count > 1 ? `${item.start}-${item.end}` : item.start}
-                </span>
-                <span className="text-[10px] text-muted-foreground/30 italic">
-                  {item.count} dark hop{item.count > 1 ? "s" : ""} (all paths)
-                </span>
-              </div>
-            );
-          }
+              const y = item.yours;
+              const pd = item.peerData;
+              const topIP = pd?.ips[0];
+              const yourMatchesTop = y?.ip && topIP && y.ip === topIP.ip;
+              const yourInPeers = y?.ip && pd?.ips.some((p) => p.ip === y!.ip);
+              const yIsMonitored = y?.ip && MONITORED_IP_SET.has(y.ip);
+              const yLabel = y?.ip ? IP_TO_LABEL.get(y.ip) : null;
+              const topLabel = topIP?.ip ? IP_TO_LABEL.get(topIP.ip) : null;
+              const topIsMonitored = topIP?.ip && MONITORED_IP_SET.has(topIP.ip);
 
-          const y = item.yours;
-          const pd = item.peerData;
-          const topIP = pd?.ips[0]; // most common peer IP at this hop
-          const yourMatchesTop = y?.ip && topIP && y.ip === topIP.ip;
-          const yourInPeers = y?.ip && pd?.ips.some((p) => p.ip === y!.ip);
-          const yIsMonitored = y?.ip && MONITORED_IP_SET.has(y.ip);
-          const yLabel = y?.ip ? IP_TO_LABEL.get(y.ip) : null;
-          const topLabel = topIP?.ip ? IP_TO_LABEL.get(topIP.ip) : null;
-          const topIsMonitored = topIP?.ip && MONITORED_IP_SET.has(topIP.ip);
+              const yourIPInPeers = y?.ip ? pd?.ips.find((p) => p.ip === y!.ip) : null;
+              const matchCount = yourIPInPeers?.count || 0;
 
-          // How many peers have the same IP as you at this hop?
-          const yourIPInPeers = y?.ip ? pd?.ips.find((p) => p.ip === y!.ip) : null;
-          const matchCount = yourIPInPeers?.count || 0;
+              return (
+                <TableRow
+                  key={`hop-${item.hop}`}
+                  className={cn(
+                    yourMatchesTop && "bg-primary/5",
+                    !y?.ip && (!pd || pd.respondingPeers === 0) && "opacity-30",
+                  )}
+                >
+                  <TableCell className="px-1 py-1 text-right text-muted-foreground text-[11px]">
+                    {item.hop}
+                  </TableCell>
 
-          return (
-            <div
-              key={`hop-${item.hop}`}
-              className={cn(
-                "grid grid-cols-[2rem_1fr_4rem_1fr_3rem] gap-x-2 px-1 py-1 rounded text-xs font-mono",
-                yourMatchesTop && "bg-primary/5",
-                !y?.ip && (!pd || pd.respondingPeers === 0) && "opacity-30",
-              )}
-            >
-              <span className="text-right text-muted-foreground text-[11px]">
-                {item.hop}
-              </span>
-
-              {/* Your IP */}
-              <span className={cn(
-                "truncate",
-                yIsMonitored && "text-foreground font-semibold",
-                yourInPeers && !yourMatchesTop && "text-primary",
-                !y?.ip && "text-muted-foreground/40 italic",
-              )}>
-                {y?.ip || "*"}
-                {yLabel && <span className="text-primary text-[10px] ml-1">{yLabel}</span>}
-                {yourMatchesTop && <span className="text-primary/60 text-[10px] ml-1">=</span>}
-                {yourInPeers && !yourMatchesTop && y?.ip && (
-                  <span className="text-primary/60 text-[10px] ml-1">{"\u2248"}</span>
-                )}
-              </span>
-
-              <span className="text-right text-muted-foreground">
-                {y?.rtt_ms != null ? `${y.rtt_ms.toFixed(1)}` : "\u2014"}
-              </span>
-
-              {/* Peer consensus */}
-              <div className="truncate">
-                {topIP ? (
-                  <span className={cn(
-                    "text-muted-foreground",
-                    topIsMonitored && "text-foreground font-semibold",
+                  <TableCell className={cn(
+                    "px-1 py-1 truncate max-w-0",
+                    yIsMonitored && "text-foreground font-semibold",
+                    yourInPeers && !yourMatchesTop && "text-primary",
+                    !y?.ip && "text-muted-foreground/40 italic",
                   )}>
-                    {topIP.ip}
-                    {topLabel && <span className="text-primary text-[10px] ml-1">{topLabel}</span>}
-                    <span className="text-muted-foreground/60 text-[10px] ml-1">
-                      {topIP.medianRtt != null ? `${topIP.medianRtt.toFixed(1)}ms` : ""}
-                    </span>
-                    {pd!.ips.length > 1 && (
-                      <span className="text-muted-foreground/40 text-[10px] ml-1">
-                        +{pd!.ips.length - 1} other{pd!.ips.length > 2 ? "s" : ""}
+                    {y?.ip || "*"}
+                    {yLabel && <span className="text-primary text-[10px] ml-1">{yLabel}</span>}
+                    {yourMatchesTop && <span className="text-primary/60 text-[10px] ml-1">=</span>}
+                    {yourInPeers && !yourMatchesTop && y?.ip && (
+                      <span className="text-primary/60 text-[10px] ml-1">{"\u2248"}</span>
+                    )}
+                  </TableCell>
+
+                  <TableCell className="px-1 py-1 text-right text-muted-foreground">
+                    {y?.rtt_ms != null ? `${y.rtt_ms.toFixed(1)}` : "\u2014"}
+                  </TableCell>
+
+                  <TableCell className="px-1 py-1 truncate max-w-0">
+                    {topIP ? (
+                      <span className={cn(
+                        "text-muted-foreground",
+                        topIsMonitored && "text-foreground font-semibold",
+                      )}>
+                        {topIP.ip}
+                        {topLabel && <span className="text-primary text-[10px] ml-1">{topLabel}</span>}
+                        <span className="text-muted-foreground/60 text-[10px] ml-1">
+                          {topIP.medianRtt != null ? `${topIP.medianRtt.toFixed(1)}ms` : ""}
+                        </span>
+                        {pd!.ips.length > 1 && (
+                          <span className="text-muted-foreground/40 text-[10px] ml-1">
+                            +{pd!.ips.length - 1} other{pd!.ips.length > 2 ? "s" : ""}
+                          </span>
+                        )}
+                      </span>
+                    ) : pd && pd.darkPeers > 0 ? (
+                      <span className="text-muted-foreground/40 italic text-[11px]">
+                        * ({pd.darkPeers} dark)
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground/40 italic text-[11px]">
+                        {"\u2014"}
                       </span>
                     )}
-                  </span>
-                ) : pd && pd.darkPeers > 0 ? (
-                  <span className="text-muted-foreground/40 italic text-[11px]">
-                    * ({pd.darkPeers} dark)
-                  </span>
-                ) : (
-                  <span className="text-muted-foreground/40 italic text-[11px]">
-                    {"\u2014"}
-                  </span>
-                )}
-              </div>
+                  </TableCell>
 
-              {/* Match count: how many peers share this IP */}
-              <span className={cn(
-                "text-right text-[11px]",
-                matchCount > 0 && matchCount >= peerCount * 0.5 && "text-primary",
-                matchCount > 0 && matchCount < peerCount * 0.5 && "text-muted-foreground",
-                matchCount === 0 && "text-muted-foreground/30",
-              )}>
-                {y?.ip && pd ? (
-                  matchCount > 0 ? `${matchCount}/${pd.totalPeers}` : `0/${pd.totalPeers}`
-                ) : ""}
-              </span>
-            </div>
-          );
-        })}
+                  <TableCell className={cn(
+                    "px-1 py-1 text-right text-[11px]",
+                    matchCount > 0 && matchCount >= peerCount * 0.5 && "text-primary",
+                    matchCount > 0 && matchCount < peerCount * 0.5 && "text-muted-foreground",
+                    matchCount === 0 && "text-muted-foreground/30",
+                  )}>
+                    {y?.ip && pd ? (
+                      matchCount > 0 ? `${matchCount}/${pd.totalPeers}` : `0/${pd.totalPeers}`
+                    ) : ""}
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
 
         {/* Legend */}
         <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3 pt-2 border-t border-border/50 text-[10px] text-muted-foreground">

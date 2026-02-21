@@ -38,7 +38,7 @@ type SidebarContextProps = {
   setOpen: (open: boolean) => void
   openMobile: boolean
   setOpenMobile: (open: boolean) => void
-  isMobile: boolean
+  isMobile: boolean | undefined
   toggleSidebar: () => void
 }
 
@@ -164,6 +164,12 @@ function Sidebar({
   collapsible?: "offcanvas" | "icon" | "none"
 }) {
   const { isMobile, state, openMobile, setOpenMobile } = useSidebar()
+
+  // Don't render until we know the viewport size to prevent hydration mismatch
+  // and ensure toggleSidebar targets the correct state (mobile vs desktop).
+  if (isMobile === undefined) {
+    return null
+  }
 
   if (collapsible === "none") {
     return (

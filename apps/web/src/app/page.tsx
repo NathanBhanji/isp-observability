@@ -49,6 +49,11 @@ export default async function DashboardPage({
   const multiUlSpeed = throughputLatest?.upload?.multi?.speed_mbps ?? null;
   const singleUlSpeed = throughputLatest?.upload?.single?.speed_mbps ?? null;
 
+  // Server latency from speed test
+  const serverLatency = throughputLatest?.download?.single?.idle_latency_ms
+    ?? throughputLatest?.single?.idle_latency_ms
+    ?? null;
+
   // Build sparkline data per target
   const targets = PING_TARGETS.map((t) => t.id);
   const sparklines: Record<string, { value: number }[]> = {};
@@ -65,7 +70,7 @@ export default async function DashboardPage({
     <div className="flex flex-col">
       <StatusBar collectorStatus={status} />
 
-      <div className="p-6 space-y-6">
+      <div className="p-4 sm:p-6 space-y-6">
         {/* Page Header */}
         <div>
           <h1 className="text-xl font-semibold tracking-tight">Dashboard</h1>
@@ -80,6 +85,7 @@ export default async function DashboardPage({
             title={`${TARGET_LABELS[PING_TARGETS[2].id]} P50 RTT`}
             value={hop3?.rtt_p50 != null ? `${hop3.rtt_p50.toFixed(1)}ms` : "N/A"}
             subtitle={`stddev ${hop3?.rtt_stddev?.toFixed(2) || "?"}ms`}
+            metric="Latest"
             badge={
               hop3?.rtt_stddev > THRESHOLDS.maxAcceptableStddev
                 ? { text: "UNSTABLE", variant: "destructive" }
@@ -90,6 +96,7 @@ export default async function DashboardPage({
             title="Packet Loss"
             value={hop3?.loss_pct != null ? `${hop3.loss_pct.toFixed(1)}%` : "N/A"}
             subtitle={`${hop3?.spikes_15ms || 0} spikes >15ms`}
+            metric="Latest"
             badge={
               hop3?.loss_pct > THRESHOLDS.maxAcceptableLoss
                 ? { text: "HIGH", variant: "destructive" }
@@ -99,10 +106,11 @@ export default async function DashboardPage({
           <KpiCard
             title="Multi/Single Ratio"
             value={ratio != null ? `${ratio.toFixed(2)}x` : "N/A"}
-            subtitle="Multi / Single stream"
+            subtitle="Multi / Single stream download"
+            metric="Latest"
             badge={
               ratio != null && ratio > THRESHOLDS.policingRatio
-                ? { text: "NOTABLE", variant: "destructive" }
+                ? { text: "NOTABLE", variant: "warning" }
                 : ratio != null
                   ? { text: "NORMAL", variant: "secondary" }
                   : undefined
@@ -111,11 +119,12 @@ export default async function DashboardPage({
         </div>
 
         {/* Speed + Outages Row */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <KpiCard
             title="Download"
             value={multiDlSpeed != null ? `${multiDlSpeed.toFixed(0)} Mbps` : "N/A"}
             subtitle={singleDlSpeed != null ? `Single: ${singleDlSpeed.toFixed(0)} Mbps` : "Multi-stream"}
+            metric="Multi-stream"
             badge={
               multiDlSpeed != null && singleDlSpeed != null && singleDlSpeed < THRESHOLDS.minSingleStreamMbps
                 ? { text: "BELOW THRESHOLD", variant: "destructive" }
@@ -128,7 +137,28 @@ export default async function DashboardPage({
             title="Upload"
             value={multiUlSpeed != null ? `${multiUlSpeed.toFixed(0)} Mbps` : singleUlSpeed != null ? `${singleUlSpeed.toFixed(0)} Mbps` : "N/A"}
             subtitle={multiUlSpeed != null && singleUlSpeed != null ? `Single: ${singleUlSpeed.toFixed(0)} Mbps` : "Multi-stream"}
+            metric="Multi-stream"
+            badge={
+              multiUlSpeed != null
+                ? { text: "OK", variant: "secondary" }
+                : undefined
+            }
           />
+          {serverLatency != null && (
+            <KpiCard
+              title="Server Latency"
+              value={`${serverLatency.toFixed(1)}ms`}
+              subtitle="Idle RTT to Ookla test server"
+              metric="Pre-test"
+              badge={
+                serverLatency < 10
+                  ? { text: "EXCELLENT", variant: "secondary" }
+                  : serverLatency < 30
+                    ? { text: "GOOD", variant: "secondary" }
+                    : { text: "HIGH", variant: "warning" }
+              }
+            />
+          )}
           <KpiCard
             title="Outages"
             value={String(outageSummary?.totalOutages ?? 0)}
@@ -151,7 +181,7 @@ export default async function DashboardPage({
             <CardTitle className="text-base">Per-Hop P50 Latency ({tfLabel})</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 sm:grid-cols-5 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
               {PING_TARGETS.map((target) => {
                 const latest = (latestPings || []).find((p: any) => p.target_id === target.id);
                 return (

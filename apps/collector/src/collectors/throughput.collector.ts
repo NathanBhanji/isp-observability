@@ -23,8 +23,8 @@ export class ThroughputCollector implements Collector {
 
     const insertTest = db.prepare(`
       INSERT INTO throughput_tests (
-        timestamp, stream_count, bytes_transferred, duration_ms, speed_mbps, source_url, source_type, direction
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        timestamp, stream_count, bytes_transferred, duration_ms, speed_mbps, source_url, source_type, direction, idle_latency_ms
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const insertTimeseries = db.prepare(`
@@ -114,7 +114,8 @@ export class ThroughputCollector implements Collector {
 
       const singleResult = insertTest.run(
         timestamp, 1, single.bytesDownloaded, single.durationMs,
-        single.speedMbps, `ookla://${single.serverHost}`, "ethernet", "download"
+        single.speedMbps, `ookla://${single.serverHost}`, "ethernet", "download",
+        single.idleLatencyMs ?? null
       );
       const singleTestId = Number(singleResult.lastInsertRowid);
 
@@ -159,7 +160,8 @@ export class ThroughputCollector implements Collector {
       const multiTimestamp = new Date().toISOString();
       const multiResult = insertTest.run(
         multiTimestamp, MULTI_STREAM_COUNT, multi.bytesDownloaded,
-        multi.durationMs, multi.speedMbps, `ookla://${multi.serverHost}`, "ethernet", "download"
+        multi.durationMs, multi.speedMbps, `ookla://${multi.serverHost}`, "ethernet", "download",
+        multi.idleLatencyMs ?? null
       );
       const multiTestId = Number(multiResult.lastInsertRowid);
 
@@ -223,7 +225,8 @@ export class ThroughputCollector implements Collector {
 
       const ulResult = insertTest.run(
         ulTimestamp, 1, upload.bytesUploaded, upload.durationMs,
-        upload.speedMbps, `ookla://${upload.serverHost}`, "ethernet", "upload"
+        upload.speedMbps, `ookla://${upload.serverHost}`, "ethernet", "upload",
+        upload.idleLatencyMs ?? null
       );
       const ulTestId = Number(ulResult.lastInsertRowid);
 
@@ -253,7 +256,8 @@ export class ThroughputCollector implements Collector {
       const ulMultiResult = insertTest.run(
         ulMultiTimestamp, MULTI_STREAM_COUNT, uploadMulti.bytesUploaded,
         uploadMulti.durationMs, uploadMulti.speedMbps, `ookla://${uploadMulti.serverHost}`,
-        "ethernet", "upload"
+        "ethernet", "upload",
+        uploadMulti.idleLatencyMs ?? null
       );
       const ulMultiTestId = Number(ulMultiResult.lastInsertRowid);
 

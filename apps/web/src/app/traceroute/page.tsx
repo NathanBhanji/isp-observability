@@ -10,6 +10,7 @@ import {
   RIPE_SHARED_DESTINATIONS,
 } from "@isp/shared";
 import { MultiPeerComparison, SinglePath } from "@/components/charts/traceroute-path";
+import { TracerouteTopology } from "@/components/charts/traceroute-topology";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 
@@ -192,11 +193,34 @@ export default async function TraceroutePage({
         </div>
       )}
 
-      {/* Multi-peer path comparisons */}
+      {/* Topology diagrams */}
+      {sharedDests.length > 0 && (
+        <div className="space-y-4">
+          <h2 className="text-sm font-medium text-muted-foreground">
+            Path Topology — your path vs. peer consensus
+          </h2>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {sharedDests.map((dest) => {
+              const ours = ourByDest.get(dest);
+              const peers = peersByDest.get(dest) || [];
+              return (
+                <TracerouteTopology
+                  key={dest}
+                  destination={dest}
+                  yours={ours?.hops || []}
+                  peers={peers}
+                />
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Multi-peer path comparisons (detailed table) */}
       {sharedDests.length > 0 ? (
         <div className="space-y-4">
           <h2 className="text-sm font-medium text-muted-foreground">
-            Path Comparison — your path vs. peer consensus
+            Path Details — hop-by-hop comparison
           </h2>
           {sharedDests.map((dest) => {
             const ours = ourByDest.get(dest);
