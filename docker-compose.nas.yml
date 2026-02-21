@@ -6,6 +6,10 @@
 #   docker compose -f docker-compose.yml build
 #
 # Then paste this file into Dockge as a new stack.
+#
+# IMPORTANT: Replace "cloudflared_default" below with your actual
+# Cloudflare tunnel Docker network name. Find it with:
+#   docker network ls | grep cloudflare
 
 services:
   collector:
@@ -22,11 +26,16 @@ services:
 
   web:
     image: isp-observability-web:latest
-    ports:
-      - "3000:3000"
+    networks:
+      - tunnel
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
       - COLLECTOR_URL=http://host.docker.internal:4000
       - NODE_ENV=production
     restart: unless-stopped
+
+networks:
+  tunnel:
+    external: true
+    name: cloudflared_default  # <-- change this to your tunnel's network name
