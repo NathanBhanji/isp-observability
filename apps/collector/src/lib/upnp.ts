@@ -178,14 +178,14 @@ export function resetUpnpCache(): void {
 // ── SOAP requests ────────────────────────────────────────────
 
 const SOAP_TIMEOUT_MS = 8000;
-const SOAP_MAX_RETRIES = 2; // Up to 3 total attempts
 const SOAP_RETRY_DELAY_MS = 500;
 
 async function soapRequest(
   baseUrl: string,
   controlPath: string,
   serviceType: string,
-  action: string
+  action: string,
+  maxRetries = 0
 ): Promise<string> {
   const body = `<?xml version="1.0"?>
 <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"
@@ -198,7 +198,7 @@ async function soapRequest(
   const url = `${baseUrl}${controlPath}`;
 
   let lastError: Error | null = null;
-  for (let attempt = 0; attempt <= SOAP_MAX_RETRIES; attempt++) {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       if (attempt > 0) {
         await new Promise((r) => setTimeout(r, SOAP_RETRY_DELAY_MS * attempt));
@@ -220,7 +220,7 @@ async function soapRequest(
       return await response.text();
     } catch (e) {
       lastError = e as Error;
-      if (attempt < SOAP_MAX_RETRIES) {
+      if (attempt < maxRetries) {
         console.warn(`[upnp] SOAP ${action} attempt ${attempt + 1} failed, retrying: ${lastError.message}`);
       }
     }
@@ -261,8 +261,13 @@ export function counterDelta(before: number | null, after: number | null): numbe
  * Lightweight fetch of just the WAN byte counters (2 SOAP calls).
  * Much faster than the full `queryRouterStatus()` which makes 5 calls.
  * Used for snapshotting traffic before/after speed tests.
+ *
+ * @param retries — number of retries per SOAP call. Use retries for
+ *   "before" snapshots (plenty of time before the test starts), but
+ *   0 for "after" snapshots — retrying after the test ends would
+ *   capture post-test traffic and inflate the delta.
  */
-export async function getWanTrafficCounters(): Promise<WanTrafficCounters> {
+export async function getWanTrafficCounters(retries = 0): Promise<WanTrafficCounters> {
   const result: WanTrafficCounters = { bytesReceived: null, bytesSent: null };
 
   const services = await getServices();
@@ -273,8 +278,8 @@ export async function getWanTrafficCounters(): Promise<WanTrafficCounters> {
 
   // Run both SOAP calls in parallel for speed
   const [rxResult, txResult] = await Promise.allSettled([
-    soapRequest(baseUrl, wanCommonControlUrl, svc, "GetTotalBytesReceived"),
-    soapRequest(baseUrl, wanCommonControlUrl, svc, "GetTotalBytesSent"),
+    soapRequest(baseUrl, wanCommonControlUrl, svc, "GetTotalBytesReceived", retries),
+    soapRequest(baseUrl, wanCommonControlUrl, svc, "GetTotalBytesSent", retries),
   ]);
 
   if (rxResult.status === "fulfilled") {

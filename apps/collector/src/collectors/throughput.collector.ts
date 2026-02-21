@@ -100,8 +100,8 @@ export class ThroughputCollector implements Collector {
       console.log("[throughput] Starting single-stream Ookla test (with latency probes)...");
       const singlePingSampleStart = correlationSamples.length;
 
-      // Snapshot WAN counters before the test
-      const wanBefore = await getWanTrafficCounters();
+      // Snapshot WAN counters before the test (retry — plenty of time before test starts)
+      const wanBefore = await getWanTrafficCounters(2);
       const pingPromise = startPinging();
 
       const single = await runOoklaTest(1);
@@ -155,8 +155,8 @@ export class ThroughputCollector implements Collector {
       console.log(`[throughput] Starting ${MULTI_STREAM_COUNT}-stream Ookla test (with latency probes)...`);
       const multiPingSampleStart = correlationSamples.length;
 
-      // Snapshot WAN counters before the test
-      const wanBeforeMulti = await getWanTrafficCounters();
+      // Snapshot WAN counters before the test (retry — plenty of time before test starts)
+      const wanBeforeMulti = await getWanTrafficCounters(2);
       const pingPromise = startPinging();
 
       const multi = await runOoklaTest(MULTI_STREAM_COUNT);
@@ -242,8 +242,8 @@ export class ThroughputCollector implements Collector {
     try {
       console.log("[throughput] Starting single-stream upload test...");
 
-      // Snapshot WAN counters before upload
-      const wanBeforeUl = await getWanTrafficCounters();
+      // Snapshot WAN counters before upload (retry — plenty of time before test starts)
+      const wanBeforeUl = await getWanTrafficCounters(2);
 
       const upload = await runOoklaUploadTest(1);
 
@@ -284,8 +284,8 @@ export class ThroughputCollector implements Collector {
     try {
       console.log(`[throughput] Starting ${MULTI_STREAM_COUNT}-stream upload test...`);
 
-      // Snapshot WAN counters before upload
-      const wanBeforeUlMulti = await getWanTrafficCounters();
+      // Snapshot WAN counters before upload (retry — plenty of time before test starts)
+      const wanBeforeUlMulti = await getWanTrafficCounters(2);
 
       const uploadMulti = await runOoklaUploadTest(MULTI_STREAM_COUNT);
 
