@@ -68,13 +68,13 @@ export function LatencyHeatmap({ data }: LatencyHeatmapProps) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Latency Heatmap</CardTitle>
+        <CardTitle className="text-base">Response Time Heatmap</CardTitle>
         <CardDescription>
-          Time x Hop — color intensity indicates RTT (P50). Green = low, red = high. Reveals periodic patterns.
+          Color intensity shows typical response time at each network step over time. Green = fast, red = slow.
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <div className="space-y-1">
+        <div className="space-y-1 min-h-[300px]">
           {targets.map((targetId) => {
             const label = TARGET_LABELS[targetId] || targetId;
             return (

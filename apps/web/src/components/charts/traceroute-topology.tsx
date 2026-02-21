@@ -66,9 +66,9 @@ export function TracerouteTopology({ destination, yours, peers }: TracerouteTopo
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Path Topology — {destLabel}</CardTitle>
+        <CardTitle className="text-base">Network Route Map — {destLabel}</CardTitle>
         <CardDescription>
-          Your path (left) vs peer consensus (right). Connected nodes share the same IP.
+          Your route (left) vs what other users see (right). Connected dots mean the same network point.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -148,19 +148,19 @@ export function TracerouteTopology({ destination, yours, peers }: TracerouteTopo
         <div className="flex gap-4 mt-4 pt-3 border-t border-border">
           <div className="flex items-center gap-1.5">
             <div className="h-3 w-3 rounded-full bg-success/20 border border-success/50" />
-            <span className="text-[10px] text-muted-foreground">Shared hop</span>
+            <span className="text-[10px] text-muted-foreground">Shared step</span>
           </div>
           <div className="flex items-center gap-1.5">
             <div className="h-3 w-3 rounded-full bg-primary/15 border border-primary/40" />
-            <span className="text-[10px] text-muted-foreground">Your path</span>
+            <span className="text-[10px] text-muted-foreground">Your route</span>
           </div>
           <div className="flex items-center gap-1.5">
             <div className="h-3 w-3 rounded-full bg-chart-5/15 border border-chart-5/40" />
-            <span className="text-[10px] text-muted-foreground">Peer consensus</span>
+            <span className="text-[10px] text-muted-foreground">Other users</span>
           </div>
           <div className="flex items-center gap-1.5">
             <div className="h-3 w-3 rounded-full bg-muted border border-border" />
-            <span className="text-[10px] text-muted-foreground">Dark hop</span>
+            <span className="text-[10px] text-muted-foreground">Hidden step</span>
           </div>
         </div>
       </CardContent>

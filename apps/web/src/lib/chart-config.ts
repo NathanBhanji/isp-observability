@@ -8,28 +8,28 @@ import { PING_TARGETS } from "@isp/shared";
 export const hopChartConfig = Object.fromEntries(
   PING_TARGETS.map((t) => [
     t.id,
-    { label: `${t.label} (${t.ip})`, color: `var(--chart-${t.hop})` },
+    { label: t.label, color: `var(--chart-${t.hop})` },
   ])
 ) satisfies ChartConfig;
 
 export const throughputChartConfig = {
   single: {
-    label: "Single Stream",
+    label: "Single Connection",
     color: "var(--chart-1)",
   },
   multi: {
-    label: "4x Parallel",
+    label: "Multiple Connections",
     color: "var(--chart-4)",
   },
 } satisfies ChartConfig;
 
 export const correlationChartConfig = {
   rtt: {
-    label: "RTT (ms)",
+    label: "Response Time (ms)",
     color: "var(--chart-3)",
   },
   throughput: {
-    label: "Throughput (Mbps)",
+    label: "Download Speed (Mbps)",
     color: "var(--chart-1)",
   },
 } satisfies ChartConfig;

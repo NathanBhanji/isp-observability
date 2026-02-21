@@ -29,8 +29,8 @@ interface LatencyTimelineProps {
 export function LatencyTimeline({
   data,
   metric = "rtt_p50",
-  title = "Per-Hop Latency",
-  description = "RTT over time for each monitored hop",
+  title = "Response Time Over Time",
+  description = "Response time for each step your traffic passes through",
 }: LatencyTimelineProps) {
   // Transform data: group by timestamp, create one row per time point with all hops
   const timeMap = new Map<string, any>();
@@ -50,19 +50,19 @@ export function LatencyTimeline({
 
   const metricLabel =
     metric === "rtt_mean"
-      ? "Mean"
+      ? "Average"
       : metric === "rtt_p50"
-        ? "P50"
+        ? "Typical"
         : metric === "rtt_p95"
-          ? "P95"
-          : "P99";
+          ? "Slow (95th)"
+          : "Worst (99th)";
 
   return (
     <Card>
       <CardHeader>
         <CardTitle className="text-base">{title}</CardTitle>
         <CardDescription>
-          {description} ({metricLabel} RTT in ms)
+          {description} ({metricLabel} in ms)
         </CardDescription>
       </CardHeader>
       <CardContent>

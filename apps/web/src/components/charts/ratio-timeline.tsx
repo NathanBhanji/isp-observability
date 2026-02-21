@@ -13,7 +13,7 @@ import { THRESHOLDS } from "@isp/shared";
 
 const ratioConfig = {
   ratio: {
-    label: "Multi/Single Ratio",
+    label: "Speed Ratio",
     color: "var(--chart-3)",
   },
 } satisfies ChartConfig;
@@ -55,9 +55,9 @@ export function RatioTimeline({ data }: RatioTimelineProps) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Policing Ratio Over Time</CardTitle>
+        <CardTitle className="text-base">Speed Throttling Indicator</CardTitle>
         <CardDescription>
-          Multi/Single stream ratio — values above {THRESHOLDS.policingRatio}x suggest per-flow policing. Dips toward 1.0x indicate the policer disengaged.
+          Compares speed using one connection vs multiple. Values above {THRESHOLDS.policingRatio}x suggest your ISP may be limiting individual downloads. Drops to 1.0x mean the limit appears inactive.
         </CardDescription>
       </CardHeader>
       <CardContent>

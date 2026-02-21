@@ -47,6 +47,13 @@
   --radius-4xl: calc(var(--radius) + 16px);
   --color-success: var(--success);
   --color-warning: var(--warning);
+
+  /* Verdict / health state colors */
+  --color-verdict-healthy: var(--verdict-healthy);
+  --color-verdict-degraded: var(--verdict-degraded);
+  --color-verdict-poor: var(--verdict-poor);
+  --color-verdict-critical: var(--verdict-critical);
+  --color-info: var(--info);
 }
 
 /*
@@ -91,6 +98,13 @@
   /* Semantic colors */
   --success: oklch(0.72 0.19 155);
   --warning: oklch(0.78 0.17 75);
+  --info: oklch(0.72 0.15 240);
+
+  /* Verdict / health state scale */
+  --verdict-healthy:  oklch(0.72 0.19 155);
+  --verdict-degraded: oklch(0.78 0.17 75);
+  --verdict-poor:     oklch(0.70 0.20 40);
+  --verdict-critical: oklch(0.65 0.22 25);
 
   /* Sidebar */
   --sidebar: oklch(0.14 0.005 260);

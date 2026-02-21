@@ -1,10 +1,10 @@
 // ── Ping Targets ──────────────────────────────────────────────
 export const PING_TARGETS = [
-  { id: "gateway", ip: "192.168.1.1", label: "Gateway", hop: 1 },
-  { id: "aggregation", ip: "10.129.56.1", label: "Hop 2", hop: 2 },
-  { id: "bcube", ip: "185.24.122.177", label: "Hop 3", hop: 3 },
-  { id: "google", ip: "8.8.8.8", label: "Google DNS", hop: 4 },
-  { id: "cloudflare", ip: "1.1.1.1", label: "Cloudflare DNS", hop: 5 },
+  { id: "gateway", ip: "192.168.1.1", label: "Home Router", hop: 1 },
+  { id: "aggregation", ip: "10.129.56.1", label: "ISP Local Node", hop: 2 },
+  { id: "bcube", ip: "185.24.122.177", label: "ISP Backbone", hop: 3 },
+  { id: "google", ip: "8.8.8.8", label: "Google (External)", hop: 4 },
+  { id: "cloudflare", ip: "1.1.1.1", label: "Cloudflare (External)", hop: 5 },
 ] as const;
 
 export type TargetId = (typeof PING_TARGETS)[number]["id"];
@@ -81,6 +81,28 @@ export const DESTINATION_LABELS: Record<string, string> = {
 export const RIPE_SHARED_DESTINATIONS = new Set(
   Object.values(RIPE_MEASUREMENT_TARGETS).map((t) => t.ip)
 );
+
+// ── ISP Plan ─────────────────────────────────────────────────
+/** Hyperoptic 1Gbps residential plan — contractual speed commitments.
+ *  Average peak-time speeds are from Hyperoptic's published marketing claims
+ *  (required to be accurate under UK Ofcom Broadband Speeds Code of Practice).
+ *  Source: hyperoptic.com homepage footer, retrieved Feb 2026.
+ *  Condition: "when connecting only 1 device to the router (and that connection is wired)."
+ */
+export const ISP_PLAN = {
+  provider: "Hyperoptic",
+  tier: "1Gbps",
+  /** Headline "up to" speed (Mbps) */
+  advertisedDown: 1000,
+  advertisedUp: 1000,
+  /** Average peak-time speed (Mbps) — the realistic benchmark */
+  avgPeakDown: 900,
+  avgPeakUp: 900,
+  /** Speed below which Ofcom code allows penalty-free exit (Mbps).
+   *  Hyperoptic doesn't publish this explicitly; using conservative 50% of advertised. */
+  minimumDown: 500,
+  minimumUp: 500,
+} as const;
 
 // ── Thresholds ───────────────────────────────────────────────
 export const THRESHOLDS = {

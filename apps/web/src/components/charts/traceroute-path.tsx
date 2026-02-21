@@ -14,6 +14,23 @@ const IP_TO_LABEL = new Map<string, string>(PING_TARGETS.map((t) => [t.ip, t.lab
 
 const MAX_DISPLAY_HOPS = 30;
 
+/** Home-network private IPs — gateway/LAN addresses that exist on every network.
+ *  192.168.x.x and 10.x.x.x are always home-side.
+ *  172.16-31.x.x is NOT excluded — ISPs commonly use it for backbone infrastructure.
+ *  100.64-127.x.x (CGNAT) is NOT excluded — it's ISP-assigned and represents real infrastructure.
+ */
+function isHomeNetworkIP(ip: string): boolean {
+  if (ip.startsWith("192.168.")) return true;
+  if (ip.startsWith("10.")) return true;
+  if (ip.startsWith("169.254.")) return true; // link-local
+  return false;
+}
+
+/** Count meaningful hops (excludes home-network gateway IPs) */
+function countMeaningfulHops(hops: Hop[]): number {
+  return hops.filter((h) => h.ip && !isHomeNetworkIP(h.ip)).length;
+}
+
 // ── Types ────────────────────────────────────────────────────
 
 interface Hop {
@@ -159,28 +176,30 @@ export function MultiPeerComparison({ destination, yours, peers }: MultiPeerComp
   const yoursMap = new Map(yoursCapped.map((h) => [h.hop_number, h]));
   const peerAgg = aggregatePeerHops(peersCapped, maxHop);
 
-  // Your stats
+  // Your stats — count meaningful hops (excludes home-network gateways)
   const yourResponding = yoursCapped.filter((h) => h.ip);
+  const yourMeaningfulHops = countMeaningfulHops(yoursCapped);
   const yourLastRtt = yourResponding.length > 0
     ? yourResponding[yourResponding.length - 1]?.rtt_ms : null;
 
-  // Peer aggregate stats
-  const peerHopCounts = peersCapped.map((p) => p.hops.filter((h) => h.ip).length);
+  // Peer aggregate stats — count meaningful hops only for fair comparison
+  const peerMeaningfulHopCounts = peersCapped.map((p) => countMeaningfulHops(p.hops));
   const peerLastRtts = peersCapped
     .map((p) => {
       const resp = p.hops.filter((h) => h.ip && h.rtt_ms != null);
       return resp.length > 0 ? resp[resp.length - 1].rtt_ms! : null;
     })
     .filter((r): r is number => r != null);
-  const medianPeerHops = peerHopCounts.length > 0 ? median(peerHopCounts) : null;
+  const medianPeerHops = peerMeaningfulHopCounts.length > 0 ? median(peerMeaningfulHopCounts) : null;
   const medianPeerRtt = peerLastRtts.length > 0 ? median(peerLastRtts) : null;
 
   // IPs that appear in your path AND at least one peer's path (at any hop)
-  const yourIPs = new Set(yourResponding.map((h) => h.ip!));
+  // Exclude home-network IPs — these are each user's own gateway, not truly shared
+  const yourIPs = new Set(yourResponding.map((h) => h.ip!).filter((ip) => !isHomeNetworkIP(ip)));
   const allPeerIPs = new Set<string>();
   for (const p of peersCapped) {
     for (const h of p.hops) {
-      if (h.ip) allPeerIPs.add(h.ip);
+      if (h.ip && !isHomeNetworkIP(h.ip)) allPeerIPs.add(h.ip);
     }
   }
   const sharedIPs = new Set([...yourIPs].filter((ip) => allPeerIPs.has(ip)));
@@ -259,7 +278,7 @@ export function MultiPeerComparison({ destination, yours, peers }: MultiPeerComp
         {/* Summary stats */}
         <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-muted-foreground mt-1">
           <span>
-            You: <strong className="text-foreground">{yourResponding.length}</strong> hops
+            You: <strong className="text-foreground">{yourMeaningfulHops}</strong> hops
             {yourLastRtt != null && <>, <strong className="text-foreground">{yourLastRtt.toFixed(1)}ms</strong> final</>}
           </span>
           <span>
@@ -325,8 +344,8 @@ export function MultiPeerComparison({ destination, yours, peers }: MultiPeerComp
             <TableRow className="text-[10px]">
               <TableHead className="h-7 px-1 w-8 text-right">#</TableHead>
               <TableHead className="h-7 px-1">Your Path</TableHead>
-              <TableHead className="h-7 px-1 w-16 text-right">RTT</TableHead>
-              <TableHead className="h-7 px-1">Peer Consensus ({peerCount})</TableHead>
+              <TableHead className="h-7 px-1 w-16 text-right">Time</TableHead>
+              <TableHead className="h-7 px-1">Most Common Path ({peerCount} users)</TableHead>
               <TableHead className="h-7 px-1 w-12 text-right">n</TableHead>
             </TableRow>
           </TableHeader>
@@ -339,7 +358,7 @@ export function MultiPeerComparison({ destination, yours, peers }: MultiPeerComp
                       {item.count > 1 ? `${item.start}-${item.end}` : item.start}
                     </TableCell>
                     <TableCell colSpan={4} className="px-1 py-0.5 text-[10px] text-muted-foreground/30 italic">
-                      {item.count} dark hop{item.count > 1 ? "s" : ""} (all paths)
+                      {item.count} hidden step{item.count > 1 ? "s" : ""} (all paths)
                     </TableCell>
                   </TableRow>
                 );
@@ -434,9 +453,9 @@ export function MultiPeerComparison({ destination, yours, peers }: MultiPeerComp
 
         {/* Legend */}
         <div className="flex flex-wrap gap-x-4 gap-y-1 mt-3 pt-2 border-t border-border/50 text-[10px] text-muted-foreground">
-          <span><span className="text-primary">=</span> same IP as top peer consensus</span>
-          <span><span className="text-primary">{"\u2248"}</span> your IP seen in some peer paths</span>
-          <span><strong>n</strong> = peers matching your IP at this hop</span>
+          <span><span className="text-primary">=</span> same as most common path</span>
+          <span><span className="text-primary">{"\u2248"}</span> your IP seen in some other paths</span>
+          <span><strong>n</strong> = users matching your route at this step</span>
         </div>
       </CardContent>
     </Card>
@@ -488,7 +507,7 @@ export function SinglePath({ destination, hops, probeId }: SinglePathProps) {
                       : item.hop_number}
                   </span>
                   <span className="text-[10px] text-muted-foreground/30 italic">
-                    {item.count} dark hop{item.count > 1 ? "s" : ""}
+                    {item.count} hidden step{item.count > 1 ? "s" : ""}
                   </span>
                 </div>
               );

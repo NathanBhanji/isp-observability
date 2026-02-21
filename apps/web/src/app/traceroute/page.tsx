@@ -9,23 +9,34 @@ import {
   DESTINATION_LABELS,
   RIPE_SHARED_DESTINATIONS,
 } from "@isp/shared";
+import { VerdictCard, type VerdictStatus } from "@/components/dashboard/verdict-card";
 import { MultiPeerComparison, SinglePath } from "@/components/charts/traceroute-path";
 import { TracerouteTopology } from "@/components/charts/traceroute-topology";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 
-export const metadata: Metadata = { title: "Traceroute Analysis" };
+export const metadata: Metadata = { title: "Network Path" };
 
-/** Max hop number to consider — matches our traceroute `-m 30` */
 const MAX_HOPS = 30;
 
-/** Parse RIPE Atlas raw_json into hop array, capped at MAX_HOPS */
+/** Home-network private IPs — gateway/LAN addresses that exist on every network.
+ *  192.168.x.x and 10.x.x.x are always home-side.
+ *  172.16-31.x.x is NOT excluded — ISPs commonly use it for backbone infrastructure.
+ */
+function isHomeNetworkIP(ip: string): boolean {
+  if (ip.startsWith("192.168.")) return true;
+  if (ip.startsWith("10.")) return true;
+  if (ip.startsWith("169.254.")) return true; // link-local
+  return false;
+}
+
 function parseRipeHops(rawJson: string) {
   try {
     const data = JSON.parse(rawJson);
     const result = data.result || [];
     return result
-      .filter((h: any) => h.hop <= MAX_HOPS) // drop hop 255 late-reply entries
+      .filter((h: any) => h.hop <= MAX_HOPS)
       .map((h: any) => {
         const responding = (h.result || []).filter((r: any) => r.from);
         const rtts = (h.result || [])
@@ -72,24 +83,20 @@ export default async function TraceroutePage({
     ourByDest.set(tr.destination, tr);
   }
 
-  // Collect ALL peer paths per destination (every probe, every result)
+  // Collect peer paths
   const peersByDest = new Map<string, Array<{ probeId: number; hops: any[] }>>();
-  const seenPeerKeys = new Set<string>(); // dedup: probe+dest
+  const seenPeerKeys = new Set<string>();
   for (const r of ripeAtlas || []) {
     const hops = parseRipeHops(r.raw_json || "");
     if (hops.length === 0) continue;
-    // Keep the most recent result per (probe, destination) pair
     const key = `${r.probe_id}:${r.destination}`;
     if (seenPeerKeys.has(key)) continue;
     seenPeerKeys.add(key);
-
-    if (!peersByDest.has(r.destination)) {
-      peersByDest.set(r.destination, []);
-    }
+    if (!peersByDest.has(r.destination)) peersByDest.set(r.destination, []);
     peersByDest.get(r.destination)!.push({ probeId: r.probe_id, hops });
   }
 
-  // Split destinations into: shared (both us and peers) vs ours-only
+  // Split destinations
   const sharedDests: string[] = [];
   const ourOnlyDests: string[] = [];
   for (const dest of ourByDest.keys()) {
@@ -100,45 +107,77 @@ export default async function TraceroutePage({
     }
   }
 
-  // Path stability check
+  // Path stability
   const pathChanges = new Map<string, Set<string>>();
   for (const tr of history || []) {
-    if (!pathChanges.has(tr.destination)) {
-      pathChanges.set(tr.destination, new Set());
-    }
+    if (!pathChanges.has(tr.destination)) pathChanges.set(tr.destination, new Set());
     pathChanges.get(tr.destination)!.add(tr.path_hash);
   }
 
-  // Total unique probes across all destinations
+  // Unique probes
   const allProbeIds = new Set<number>();
   for (const peers of peersByDest.values()) {
-    for (const p of peers) {
-      allProbeIds.add(p.probeId);
-    }
+    for (const p of peers) allProbeIds.add(p.probeId);
   }
+
+  // Verdict
+  const hasMultiplePaths = Array.from(pathChanges.values()).some((s) => s.size > 2);
+  let verdictStatus: VerdictStatus = "healthy";
+  if (hasMultiplePaths) verdictStatus = "degraded";
+
+  // Compute aggregate stats for verdict metrics — count public (non-private) hops only
+  const allOurHopCounts = sharedDests.map((dest) => {
+    const ours = ourByDest.get(dest);
+    return (ours?.hops || []).filter((h: any) => h.ip && !isHomeNetworkIP(h.ip)).length;
+  });
+  const avgOurHops = allOurHopCounts.length > 0
+    ? (allOurHopCounts.reduce((a: number, b: number) => a + b, 0) / allOurHopCounts.length).toFixed(0)
+    : "?";
+
+  const totalPathVariants = Array.from(pathChanges.values()).reduce((sum, s) => sum + s.size, 0);
 
   return (
     <div className="p-6 space-y-6">
       <div>
-        <h1 className="text-xl font-semibold tracking-tight">Traceroute Comparison</h1>
+        <h1 className="text-xl font-semibold tracking-tight">Network Path</h1>
         <p className="text-sm text-muted-foreground">
-          Your paths compared with {allProbeIds.size > 0 ? `${allProbeIds.size} ` : ""}
-          RIPE Atlas peers on the same network, tracing to the same destinations
+          The route your data takes across the internet, compared with{" "}
+          {allProbeIds.size > 0 ? `${allProbeIds.size} ` : ""}
+          other users on your ISP
         </p>
       </div>
 
-      {/* Comparison summary cards */}
+      {/* Verdict */}
+      <VerdictCard
+        status={verdictStatus}
+        headline={
+          verdictStatus === "healthy"
+            ? "Your network path is normal"
+            : "Route changes detected"
+        }
+        description={
+          verdictStatus === "healthy"
+            ? "Your data takes a typical route with stable performance compared to other users on the same ISP."
+            : `Multiple route changes detected across your monitored destinations. This may indicate ISP routing instability.`
+        }
+        metrics={[
+          { label: "Your Avg Hops", value: avgOurHops },
+          { label: "Destinations", value: String(ourByDest.size) },
+          { label: "Peers", value: String(allProbeIds.size) },
+        ]}
+      />
+
+      {/* Summary cards — path stability */}
       {sharedDests.length > 0 && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           {sharedDests.map((dest) => {
             const ours = ourByDest.get(dest);
             const peers = peersByDest.get(dest) || [];
-            const ourHops = (ours?.hops || []).filter((h: any) => h.ip);
-            const ourRtt = ourHops.length > 0 ? ourHops[ourHops.length - 1]?.rtt_ms : null;
+            const ourRespondingHops = (ours?.hops || []).filter((h: any) => h.ip);
+            const ourPublicHops = ourRespondingHops.filter((h: any) => !isHomeNetworkIP(h.ip));
+            const ourRtt = ourRespondingHops.length > 0 ? ourRespondingHops[ourRespondingHops.length - 1]?.rtt_ms : null;
             const pathCount = pathChanges.get(dest)?.size || 0;
-
-            // Aggregate peer stats
-            const peerHopCounts = peers.map((p) => p.hops.filter((h: any) => h.ip).length);
+            const peerHopCounts = peers.map((p) => p.hops.filter((h: any) => h.ip && !isHomeNetworkIP(h.ip)).length);
             const peerLastRtts = peers
               .map((p) => {
                 const resp = p.hops.filter((h: any) => h.ip && h.rtt_ms != null);
@@ -151,13 +190,13 @@ export default async function TraceroutePage({
             return (
               <Card key={dest}>
                 <CardContent className="pt-4 space-y-2">
-                  <div className="text-xs text-muted-foreground font-mono">
+                  <div className="text-xs font-medium">
                     {DESTINATION_LABELS[dest] || dest}
                   </div>
                   <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
                     <div>
                       <span className="text-muted-foreground">You:</span>{" "}
-                      <span className="font-mono font-semibold">{ourHops.length}</span>
+                      <span className="font-mono font-semibold">{ourPublicHops.length}</span>
                       <span className="text-muted-foreground"> hops</span>
                       {ourRtt != null && (
                         <span className="font-mono text-muted-foreground"> / {ourRtt.toFixed(0)}ms</span>
@@ -180,7 +219,7 @@ export default async function TraceroutePage({
                     {pathCount <= 1 ? (
                       <Badge variant="secondary" className="text-[10px]">STABLE</Badge>
                     ) : (
-                      <Badge variant="destructive" className="text-[10px]">{pathCount} PATHS</Badge>
+                      <Badge variant="destructive" className="text-[10px]">{pathCount} ROUTES</Badge>
                     )}
                     <Badge variant="outline" className="text-[10px]">
                       {peers.length} peer{peers.length !== 1 ? "s" : ""}
@@ -193,67 +232,54 @@ export default async function TraceroutePage({
         </div>
       )}
 
-      {/* Topology diagrams */}
-      {sharedDests.length > 0 && (
-        <div className="space-y-4">
-          <h2 className="text-sm font-medium text-muted-foreground">
-            Path Topology — your path vs. peer consensus
-          </h2>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-            {sharedDests.map((dest) => {
-              const ours = ourByDest.get(dest);
-              const peers = peersByDest.get(dest) || [];
-              return (
-                <TracerouteTopology
-                  key={dest}
-                  destination={dest}
-                  yours={ours?.hops || []}
-                  peers={peers}
-                />
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Multi-peer path comparisons (detailed table) */}
+      {/* Tabbed topology + comparison */}
       {sharedDests.length > 0 ? (
-        <div className="space-y-4">
-          <h2 className="text-sm font-medium text-muted-foreground">
-            Path Details — hop-by-hop comparison
-          </h2>
+        <Tabs defaultValue={sharedDests[0]}>
+          <TabsList>
+            {sharedDests.map((dest) => (
+              <TabsTrigger key={dest} value={dest}>
+                {DESTINATION_LABELS[dest] || dest}
+              </TabsTrigger>
+            ))}
+          </TabsList>
           {sharedDests.map((dest) => {
             const ours = ourByDest.get(dest);
             const peers = peersByDest.get(dest) || [];
             return (
-              <MultiPeerComparison
-                key={dest}
-                destination={dest}
-                yours={ours?.hops || []}
-                peers={peers}
-              />
+              <TabsContent key={dest} value={dest} className="mt-4 space-y-4">
+                <TracerouteTopology
+                  destination={dest}
+                  yours={ours?.hops || []}
+                  peers={peers}
+                />
+                <MultiPeerComparison
+                  destination={dest}
+                  yours={ours?.hops || []}
+                  peers={peers}
+                />
+              </TabsContent>
             );
           })}
-        </div>
+        </Tabs>
       ) : (
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Waiting for comparison data</CardTitle>
             <CardDescription>
-              Traceroutes to RIPE measurement destinations will appear after the next collection cycle.
-              Peer data is collected hourly from RIPE Atlas probes.
+              Traceroutes to shared destinations will appear after the next collection cycle.
+              Peer data is collected hourly from independent network probes.
             </CardDescription>
           </CardHeader>
         </Card>
       )}
 
-      {/* Our-only destinations */}
+      {/* Our-only destinations — collapsed */}
       {ourOnlyDests.length > 0 && (
-        <div className="space-y-4">
-          <h2 className="text-sm font-medium text-muted-foreground">
-            Additional Paths (no peer comparison)
-          </h2>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <details>
+          <summary className="text-sm font-medium text-muted-foreground cursor-pointer hover:text-foreground">
+            Additional Paths ({ourOnlyDests.length} destinations, no peer comparison)
+          </summary>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-3">
             {ourOnlyDests.map((dest) => {
               const tr = ourByDest.get(dest);
               return (
@@ -265,26 +291,26 @@ export default async function TraceroutePage({
               );
             })}
           </div>
-        </div>
+        </details>
       )}
 
-      {/* Path stability */}
+      {/* Path stability — compact */}
       {pathChanges.size > 0 && (
         <Card>
           <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Path Stability</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Route Stability</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
               {Array.from(pathChanges.entries()).map(([dest, hashes]) => (
                 <div key={dest} className="flex items-center gap-2 text-xs">
-                  <span className="font-mono text-muted-foreground truncate">
+                  <span className="text-muted-foreground truncate">
                     {DESTINATION_LABELS[dest] || dest}
                   </span>
                   {hashes.size === 1 ? (
-                    <Badge variant="secondary" className="text-[10px]">1 path</Badge>
+                    <Badge variant="secondary" className="text-[10px]">1 route</Badge>
                   ) : (
-                    <Badge variant="destructive" className="text-[10px]">{hashes.size} paths</Badge>
+                    <Badge variant="destructive" className="text-[10px]">{hashes.size} routes</Badge>
                   )}
                 </div>
               ))}

@@ -74,7 +74,7 @@ export function HopComparison({ allHops, hopA, hopB, hopAId = "aggregation", hop
     return (
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Adjacent Hop Comparison</CardTitle>
+          <CardTitle className="text-base">Network Step Comparison</CardTitle>
           <CardDescription>Waiting for data...</CardDescription>
         </CardHeader>
       </Card>
@@ -87,17 +87,17 @@ export function HopComparison({ allHops, hopA, hopB, hopAId = "aggregation", hop
   const ipB = TARGET_IPS[actualBId] || "";
 
   const rows = [
-    { metric: "Mean RTT", h2: resolvedHopA.rtt_mean, h3: resolvedHopB.rtt_mean, unit: "ms", worseBigger: true },
-    { metric: "P50 RTT", h2: resolvedHopA.rtt_p50, h3: resolvedHopB.rtt_p50, unit: "ms", worseBigger: true },
-    { metric: "P95 RTT", h2: resolvedHopA.rtt_p95, h3: resolvedHopB.rtt_p95, unit: "ms", worseBigger: true },
-    { metric: "P99 RTT", h2: resolvedHopA.rtt_p99, h3: resolvedHopB.rtt_p99, unit: "ms", worseBigger: true },
-    { metric: "Std Dev", h2: resolvedHopA.rtt_stddev, h3: resolvedHopB.rtt_stddev, unit: "ms", worseBigger: true },
-    { metric: "Jitter (mean)", h2: resolvedHopA.jitter_mean, h3: resolvedHopB.jitter_mean, unit: "ms", worseBigger: true },
-    { metric: "Jitter (max)", h2: resolvedHopA.jitter_max, h3: resolvedHopB.jitter_max, unit: "ms", worseBigger: true },
+    { metric: "Avg Response Time", h2: resolvedHopA.rtt_mean, h3: resolvedHopB.rtt_mean, unit: "ms", worseBigger: true },
+    { metric: "Typical Response", h2: resolvedHopA.rtt_p50, h3: resolvedHopB.rtt_p50, unit: "ms", worseBigger: true },
+    { metric: "Slow (95th %ile)", h2: resolvedHopA.rtt_p95, h3: resolvedHopB.rtt_p95, unit: "ms", worseBigger: true },
+    { metric: "Worst (99th %ile)", h2: resolvedHopA.rtt_p99, h3: resolvedHopB.rtt_p99, unit: "ms", worseBigger: true },
+    { metric: "Consistency", h2: resolvedHopA.rtt_stddev, h3: resolvedHopB.rtt_stddev, unit: "ms", worseBigger: true },
+    { metric: "Avg Fluctuation", h2: resolvedHopA.jitter_mean, h3: resolvedHopB.jitter_mean, unit: "ms", worseBigger: true },
+    { metric: "Worst Fluctuation", h2: resolvedHopA.jitter_max, h3: resolvedHopB.jitter_max, unit: "ms", worseBigger: true },
     { metric: "Packet Loss", h2: resolvedHopA.loss_pct, h3: resolvedHopB.loss_pct, unit: "%", worseBigger: true },
-    { metric: "Spikes >10ms", h2: resolvedHopA.spikes_10ms, h3: resolvedHopB.spikes_10ms, unit: "", worseBigger: true },
-    { metric: "Spikes >15ms", h2: resolvedHopA.spikes_15ms, h3: resolvedHopB.spikes_15ms, unit: "", worseBigger: true },
-    { metric: "Spikes >20ms", h2: resolvedHopA.spikes_20ms, h3: resolvedHopB.spikes_20ms, unit: "", worseBigger: true },
+    { metric: "Slowdowns >10ms", h2: resolvedHopA.spikes_10ms, h3: resolvedHopB.spikes_10ms, unit: "", worseBigger: true },
+    { metric: "Slowdowns >15ms", h2: resolvedHopA.spikes_15ms, h3: resolvedHopB.spikes_15ms, unit: "", worseBigger: true },
+    { metric: "Slowdowns >20ms", h2: resolvedHopA.spikes_20ms, h3: resolvedHopB.spikes_20ms, unit: "", worseBigger: true },
   ];
 
   return (
@@ -106,10 +106,10 @@ export function HopComparison({ allHops, hopA, hopB, hopAId = "aggregation", hop
         <div className="flex flex-col sm:flex-row sm:items-center gap-3">
           <div className="flex-1">
             <CardTitle className="text-base">
-              Hop Comparison
+               Network Step Comparison
             </CardTitle>
             <CardDescription>
-              Side-by-side latency metrics ({ipA} vs {ipB})
+              Side-by-side response time comparison
             </CardDescription>
           </div>
           {allHops && (

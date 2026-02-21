@@ -89,15 +89,15 @@ function ScatterPanel({
   if (pearsonR !== null) {
     const abs = Math.abs(pearsonR);
     if (abs < 0.1) {
-      interpretation = `No meaningful correlation at ${label}. RTT is independent of throughput.`;
+      interpretation = `No meaningful link at ${label}. Response time doesn't seem to affect speed.`;
     } else if (abs < 0.3) {
-      interpretation = `Weak correlation at ${label} (r=${rStr}). Minimal bufferbloat signal.`;
+      interpretation = `Weak link at ${label}. Minimal sign of network congestion.`;
     } else if (abs < 0.5) {
-      interpretation = `Moderate correlation at ${label} (r=${rStr}). Some bufferbloat likely present.`;
+      interpretation = `Moderate link at ${label}. Some network congestion is likely.`;
     } else if (pearsonR > 0) {
-      interpretation = `Strong positive correlation at ${label} (r=${rStr}). Clear bufferbloat detected.`;
+      interpretation = `Strong link at ${label}. Clear network congestion detected — your connection slows down under load.`;
     } else {
-      interpretation = `Strong negative correlation at ${label} (r=${rStr}). Anomalous — may indicate a route change.`;
+      interpretation = `Unusual pattern at ${label}. Your traffic may have been rerouted.`;
     }
   }
 
@@ -111,15 +111,15 @@ function ScatterPanel({
 
   return (
     <div>
-      <div className="mb-4 flex items-center gap-4">
-        <div className="rounded-md border border-border bg-secondary/50 px-3 py-2">
-          <span className="text-xs text-muted-foreground">Pearson r = </span>
-          <span className={`text-lg font-bold font-mono ${rColor}`}>{rStr}</span>
+        <div className="mb-4 flex items-center gap-4">
+          <div className="rounded-md border border-border bg-secondary/50 px-3 py-2">
+            <span className="text-xs text-muted-foreground">Correlation: </span>
+            <span className={`text-lg font-bold font-mono ${rColor}`}>{rStr}</span>
+          </div>
+          <span className="text-xs text-muted-foreground">
+            {filteredSamples.length} measurements
+          </span>
         </div>
-        <span className="text-xs text-muted-foreground">
-          {filteredSamples.length} sample pairs
-        </span>
-      </div>
       {interpretation && (
         <p className="text-xs text-muted-foreground mb-3">{interpretation}</p>
       )}
@@ -129,24 +129,26 @@ function ScatterPanel({
           <XAxis
             dataKey="rtt"
             type="number"
-            name="RTT"
+            name="Response Time"
             unit="ms"
             tickLine={false}
             axisLine={false}
             fontSize={11}
             domain={[bounds.minX, bounds.maxX]}
+            tickFormatter={(v: number) => v.toFixed(1)}
           />
           <YAxis
             dataKey="throughput"
             type="number"
-            name="Throughput"
+            name="Speed"
             unit=" Mbps"
             tickLine={false}
             axisLine={false}
             fontSize={11}
             domain={[bounds.minY, bounds.maxY]}
+            tickFormatter={(v: number) => v.toFixed(0)}
           />
-          <ZAxis range={[40, 40]} />
+          <ZAxis range={[80, 80]} />
           <ChartTooltip content={<ChartTooltipContent />} />
           <Scatter data={filteredSamples} fill="var(--color-rtt)" fillOpacity={0.6} />
           {regressionLine && (
@@ -186,9 +188,9 @@ export function CorrelationScatter({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">RTT vs Throughput</CardTitle>
+        <CardTitle className="text-base">Response Time vs Speed</CardTitle>
         <CardDescription>
-          Scatter plot with linear regression — each dot is a simultaneous RTT + throughput measurement
+          Each dot shows a response time and speed test taken at the same time — the trend line reveals whether slower responses coincide with slower speeds
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -198,10 +200,13 @@ export function CorrelationScatter({
               <TabsTrigger key={t} value={t}>
                 {TARGET_LABELS[t] || t}
                 {corrMap[t] != null && (
-                  <span className="ml-1 text-[10px] font-mono opacity-70">
-                    r={corrMap[t]!.toFixed(2)}
-                  </span>
-                )}
+                   <span className={`ml-1.5 inline-block h-2 w-2 rounded-full ${
+                     Math.abs(corrMap[t]!) < 0.1 ? "bg-muted-foreground/40"
+                     : Math.abs(corrMap[t]!) < 0.3 ? "bg-success"
+                     : Math.abs(corrMap[t]!) < 0.5 ? "bg-warning"
+                     : "bg-destructive"
+                   }`} title={`r=${corrMap[t]!.toFixed(2)}`} />
+                 )}
               </TabsTrigger>
             ))}
           </TabsList>

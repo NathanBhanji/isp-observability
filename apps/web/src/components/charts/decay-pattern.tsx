@@ -34,9 +34,9 @@ export function DecayPattern({ data }: DecayPatternProps) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Single-Stream Throughput Profile</CardTitle>
+        <CardTitle className="text-base">Download Speed Profile (Single Connection)</CardTitle>
         <CardDescription>
-          Per-second throughput during single-stream download — reveals throttling patterns, burst allowances, and rate-limiter behavior
+          Second-by-second download speed — shows if your ISP starts fast then slows you down, or limits your speed after a burst
         </CardDescription>
       </CardHeader>
       <CardContent>

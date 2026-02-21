@@ -5,6 +5,7 @@ import {
   BarChart3,
   GitBranch,
   Home,
+  Lightbulb,
   Radio,
   Route,
   FileText,
@@ -29,16 +30,20 @@ import {
 
 const navItems = [
   { title: "Overview", href: "/", icon: Home },
+  { title: "Insights", href: "/insights", icon: Lightbulb },
   { title: "Latency", href: "/latency", icon: Activity },
   { title: "Throughput", href: "/throughput", icon: BarChart3 },
   { title: "Correlation", href: "/correlation", icon: GitBranch },
   { title: "Traceroute", href: "/traceroute", icon: Route },
-  { title: "Evidence", href: "/evidence", icon: FileText },
 ];
 
-const statusItems = [
-  { title: "Network", href: "/router", icon: Server },
+const historyItems = [
+  { title: "Evidence", href: "/evidence", icon: FileText },
   { title: "Outages", href: "/outages", icon: WifiOff },
+];
+
+const infraItems = [
+  { title: "Network", href: "/router", icon: Server },
 ];
 
 export function AppSidebar() {
@@ -87,10 +92,31 @@ export function AppSidebar() {
         </SidebarGroup>
 
         <SidebarGroup>
+          <SidebarGroupLabel>History</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {historyItems.map((item) => (
+                <SidebarMenuItem key={item.href}>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={pathname.startsWith(item.href)}
+                  >
+                    <Link href={item.href}>
+                      <item.icon className="h-4 w-4" />
+                      <span>{item.title}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarGroup>
           <SidebarGroupLabel>Infrastructure</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {statusItems.map((item) => (
+              {infraItems.map((item) => (
                 <SidebarMenuItem key={item.href}>
                   <SidebarMenuButton
                     asChild

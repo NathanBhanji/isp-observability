@@ -71,7 +71,7 @@ export function ThroughputHistory({
       <CardHeader>
         <CardTitle className="text-base">{label} History</CardTitle>
         <CardDescription>
-          Single-stream vs 4x parallel {label.toLowerCase()} speed (Mbps)
+          One connection vs four simultaneous connections — {label.toLowerCase()} speed (Mbps)
           {singleAvg != null && multiAvg != null && (
             <span className="ml-2 font-mono text-[10px]">
               avg: {singleAvg.toFixed(0)} / {multiAvg.toFixed(0)} Mbps

@@ -7,6 +7,7 @@ import { Separator } from "@/components/ui/separator";
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import { AutoRefresh } from "@/components/layout/auto-refresh";
 import { TimeframeSelector } from "@/components/layout/timeframe-selector";
+import { PageBreadcrumb } from "@/components/layout/page-breadcrumb";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -46,7 +47,7 @@ export default function RootLayout({
                 <div className="flex items-center gap-2">
                   <SidebarTrigger className="-ml-1" />
                   <Separator orientation="vertical" className="mr-2 h-4" />
-                  <span className="text-sm text-muted-foreground">Dashboard</span>
+                  <PageBreadcrumb />
                 </div>
                 <Suspense>
                   <TimeframeSelector />
