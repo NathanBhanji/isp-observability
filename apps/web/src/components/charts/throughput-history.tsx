@@ -35,7 +35,7 @@ export function ThroughputHistory({
   direction = "download",
 }: ThroughputHistoryProps) {
   // Group tests by approximate time into single/multi pairs
-  const pairs: { time: string; single: number; multi: number; wanTotal?: number }[] = [];
+  const pairs: { time: string; single: number; multi: number; wanTotal: number }[] = [];
 
   const singleTests = data?.filter((t: any) => t.stream_count === 1) || [];
   const multiTests = data?.filter((t: any) => t.stream_count > 1) || [];
@@ -47,25 +47,29 @@ export function ThroughputHistory({
     const ts = s?.timestamp || m?.timestamp || "";
     const multiSpd = m?.speed_mbps || 0;
     const singleSpd = s?.speed_mbps || 0;
-    // Only use WAN speed from the same test — never mix single WAN with multi speed
-    // because single-stream WAN total can be lower than multi-stream measured speed.
-    // Also clamp: WAN total must be >= measured speed (it includes the test itself).
-    let wanSpeed: number | undefined;
+    // WAN total = router-reported traffic during the test.
+    // Clamp: must be >= measured speed (it includes the test itself).
+    // Fallback: if UPnP data is missing, use measured speed so the line
+    // stays continuous instead of showing gaps.
+    let wanSpeed: number;
     if (m?.wan_speed_mbps != null) {
       wanSpeed = Math.max(m.wan_speed_mbps, multiSpd);
     } else if (s?.wan_speed_mbps != null && multiSpd === 0) {
-      // Only use single WAN when there's no multi test in this pair
       wanSpeed = Math.max(s.wan_speed_mbps, singleSpd);
+    } else {
+      // No WAN data — fall back to measured speed (minimum possible router traffic)
+      wanSpeed = multiSpd || singleSpd;
     }
     pairs.push({
       time: ts.slice(11, 16),
       single: singleSpd,
       multi: multiSpd,
-      ...(wanSpeed != null ? { wanTotal: Math.round(wanSpeed * 10) / 10 } : {}),
+      wanTotal: Math.round(wanSpeed * 10) / 10,
     });
   }
 
-  const hasWanData = pairs.some((p) => p.wanTotal != null);
+  // wanTotal is always set (falls back to measured speed when UPnP data missing)
+  const hasWanData = true;
 
   // Compute averages for reference lines
   const singleValues = pairs.map((p) => p.single).filter((v) => v > 0);
@@ -86,7 +90,7 @@ export function ThroughputHistory({
       <CardHeader>
         <CardTitle className="text-base">{label} History</CardTitle>
         <CardDescription>
-          One connection vs four simultaneous connections{hasWanData ? " vs total router traffic" : ""} — {label.toLowerCase()} speed (Mbps)
+          One connection vs four simultaneous connections vs total router traffic — {label.toLowerCase()} speed (Mbps)
           {singleAvg != null && multiAvg != null && (
             <span className="ml-2 font-mono text-[10px]">
               avg: {singleAvg.toFixed(0)} / {multiAvg.toFixed(0)} Mbps
@@ -210,17 +214,14 @@ export function ThroughputHistory({
                 }}
               />
             )}
-            {hasWanData && (
-              <Area
-                dataKey="wanTotal"
-                type="monotone"
-                fill="url(#fillWanTotal)"
-                stroke="var(--color-wanTotal)"
-                strokeWidth={1.5}
-                strokeDasharray="4 3"
-                connectNulls
-              />
-            )}
+            <Area
+              dataKey="wanTotal"
+              type="monotone"
+              fill="url(#fillWanTotal)"
+              stroke="var(--color-wanTotal)"
+              strokeWidth={1.5}
+              strokeDasharray="4 3"
+            />
             <Area
               dataKey="multi"
               type="monotone"

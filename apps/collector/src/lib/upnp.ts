@@ -177,6 +177,10 @@ export function resetUpnpCache(): void {
 
 // ── SOAP requests ────────────────────────────────────────────
 
+const SOAP_TIMEOUT_MS = 8000;
+const SOAP_MAX_RETRIES = 2; // Up to 3 total attempts
+const SOAP_RETRY_DELAY_MS = 500;
+
 async function soapRequest(
   baseUrl: string,
   controlPath: string,
@@ -192,21 +196,37 @@ async function soapRequest(
 </s:Envelope>`;
 
   const url = `${baseUrl}${controlPath}`;
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": 'text/xml; charset="utf-8"',
-      SOAPAction: `"${serviceType}#${action}"`,
-    },
-    body,
-    signal: AbortSignal.timeout(5000),
-  });
 
-  if (!response.ok) {
-    throw new Error(`UPnP SOAP ${action} error: ${response.status} (${url})`);
+  let lastError: Error | null = null;
+  for (let attempt = 0; attempt <= SOAP_MAX_RETRIES; attempt++) {
+    try {
+      if (attempt > 0) {
+        await new Promise((r) => setTimeout(r, SOAP_RETRY_DELAY_MS * attempt));
+      }
+      const response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": 'text/xml; charset="utf-8"',
+          SOAPAction: `"${serviceType}#${action}"`,
+        },
+        body,
+        signal: AbortSignal.timeout(SOAP_TIMEOUT_MS),
+      });
+
+      if (!response.ok) {
+        throw new Error(`UPnP SOAP ${action} error: ${response.status} (${url})`);
+      }
+
+      return await response.text();
+    } catch (e) {
+      lastError = e as Error;
+      if (attempt < SOAP_MAX_RETRIES) {
+        console.warn(`[upnp] SOAP ${action} attempt ${attempt + 1} failed, retrying: ${lastError.message}`);
+      }
+    }
   }
 
-  return response.text();
+  throw lastError!;
 }
 
 /** Extract a value from XML SOAP response by tag name */
