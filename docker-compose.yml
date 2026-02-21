@@ -1,5 +1,6 @@
 services:
   collector:
+    image: isp-observability-collector:latest
     build:
       context: .
       dockerfile: apps/collector/Dockerfile
@@ -17,6 +18,7 @@ services:
     restart: unless-stopped
 
   web:
+    image: isp-observability-web:latest
     build:
       context: .
       dockerfile: apps/web/Dockerfile
