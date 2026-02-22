@@ -153,7 +153,7 @@ export default async function DashboardPage({
               multiDlSpeed?.toFixed(0)
             } Mbps is achievable with multiple connections (${ratio?.toFixed(2)}x raw ratio${adjRatio != null && adjRatio !== ratio ? `, ${adjRatio.toFixed(2)}x WAN-adjusted` : ""}).`}
             action="View detailed evidence"
-            actionHref="/evidence"
+            actionHref="/verdict"
             items={[
               "Your ISP is limiting individual connection speeds",
               "This affects single-threaded downloads and some video streaming",
@@ -267,10 +267,10 @@ export default async function DashboardPage({
                     </ul>
                   </div>
                   <Link
-                    href="/insights"
+                    href="/verdict"
                     className="text-xs text-primary hover:underline whitespace-nowrap shrink-0"
                   >
-                    View Insights →
+                    View Verdict →
                   </Link>
                 </div>
               </CardContent>

@@ -37,3 +37,33 @@ export const correlationChartConfig = {
     color: "var(--chart-1)",
   },
 } satisfies ChartConfig;
+
+export const timeOfDayChartConfig = {
+  avgSpeed: {
+    label: "Avg Speed (Mbps)",
+    color: "var(--chart-1)",
+  },
+  avgRtt: {
+    label: "Avg Response Time (ms)",
+    color: "var(--chart-3)",
+  },
+} satisfies ChartConfig;
+
+export const congestionOverlayConfig = {
+  speed: {
+    label: "Download Speed (Mbps)",
+    color: "hsl(160 60% 45%)",       // teal
+  },
+  latency: {
+    label: "ISP Backbone Response (ms)",
+    color: "hsl(35 90% 55%)",        // amber
+  },
+  routerLatency: {
+    label: "Router Response (ms)",
+    color: "hsl(220 15% 55%)",       // blue-grey
+  },
+  wanSpeed: {
+    label: "Total Router Traffic (Mbps)",
+    color: "hsl(270 50% 60%)",       // purple
+  },
+} satisfies ChartConfig;

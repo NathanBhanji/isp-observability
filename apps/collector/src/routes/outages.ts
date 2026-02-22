@@ -31,7 +31,8 @@ outages.get("/summary", (c) => {
          SUM(duration_ms) as total_duration_ms,
          MAX(duration_ms) as longest_ms,
          AVG(duration_ms) as avg_ms,
-         SUM(missed_pings) as total_missed_pings
+         SUM(missed_pings) as total_missed_pings,
+         MIN(started_at) as earliest_at
        FROM outages ${where}`
     )
     .get(...params) as any;
@@ -48,6 +49,7 @@ outages.get("/summary", (c) => {
     longestMs: stats?.longest_ms ?? 0,
     avgMs: Math.round((stats?.avg_ms ?? 0) * 100) / 100,
     totalMissedPings: stats?.total_missed_pings ?? 0,
+    earliestAt: stats?.earliest_at ?? null,
     recent,
   });
 });

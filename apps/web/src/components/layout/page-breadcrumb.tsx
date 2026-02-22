@@ -4,12 +4,11 @@ import { usePathname } from "next/navigation";
 
 const PAGE_TITLES: Record<string, string> = {
   "/": "Overview",
-  "/insights": "Insights",
+  "/verdict": "Verdict",
   "/latency": "Latency",
   "/throughput": "Throughput",
-  "/correlation": "Correlation",
+  "/congestion": "Congestion",
   "/traceroute": "Network Path",
-  "/evidence": "Evidence",
   "/router": "Network Status",
   "/outages": "Outages",
 };

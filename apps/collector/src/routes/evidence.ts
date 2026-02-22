@@ -143,22 +143,22 @@ evidence.get("/summary", (c) => {
         ? Math.round((adjMultiDlSpeed! / adjSingleDlSpeed) * 100) / 100
         : null;
 
-      // Decay detection on latest single-stream download
+      // Decay detection on latest multi-stream download
       let decayDetected = false;
-      const latestSingle = db
+      const latestTest = db
         .prepare(
           `SELECT id FROM throughput_tests
-           WHERE stream_count = 1 AND direction = 'download' ${timeFilter()}
+         WHERE stream_count > 1 AND direction = 'download' ${timeFilter()}
            ORDER BY id DESC LIMIT 1`
         )
         .get(...timeParams()) as any;
 
-      if (latestSingle) {
+      if (latestTest) {
         const timeseries = db
           .prepare(
             "SELECT speed_mbps FROM throughput_timeseries WHERE test_id = ? ORDER BY second_offset ASC"
           )
-          .all(latestSingle.id) as any[];
+          .all(latestTest.id) as any[];
 
         if (timeseries.length >= 5) {
           const firstThird = timeseries.slice(0, Math.ceil(timeseries.length / 3));

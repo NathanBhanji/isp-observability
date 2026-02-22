@@ -271,7 +271,7 @@ export default async function ThroughputPage({
             title: "Speed Throttling Detected",
             description: `Across ${dlRatios.length} paired tests, single-connection downloads reach only ${dlSingleMedian?.toFixed(0)} Mbps while multi-connection achieves ${dlMultiMedian?.toFixed(0)} Mbps (${medianDlRatio?.toFixed(2)}x raw ratio${medianAdjDlRatio != null ? `, ${medianAdjDlRatio.toFixed(2)}x WAN-adjusted` : ""}). Persistent pattern.`,
             action: "View evidence",
-            actionHref: "/evidence",
+            actionHref: "/verdict",
             items: [
               "Contact your ISP and reference this evidence",
               "Streaming services using single connections will be affected",

@@ -3,6 +3,7 @@
 import {
   Activity,
   BarChart3,
+  Gavel,
   GitBranch,
   Home,
   Lightbulb,
@@ -30,15 +31,14 @@ import {
 
 const navItems = [
   { title: "Overview", href: "/", icon: Home },
-  { title: "Insights", href: "/insights", icon: Lightbulb },
+  { title: "Verdict", href: "/verdict", icon: Gavel },
   { title: "Latency", href: "/latency", icon: Activity },
   { title: "Throughput", href: "/throughput", icon: BarChart3 },
-  { title: "Correlation", href: "/correlation", icon: GitBranch },
+  { title: "Congestion", href: "/congestion", icon: GitBranch },
   { title: "Traceroute", href: "/traceroute", icon: Route },
 ];
 
 const historyItems = [
-  { title: "Evidence", href: "/evidence", icon: FileText },
   { title: "Outages", href: "/outages", icon: WifiOff },
 ];
 

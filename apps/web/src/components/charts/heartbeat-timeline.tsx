@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 
 interface HeartbeatTimelineProps {
@@ -10,22 +11,104 @@ interface HeartbeatTimelineProps {
   periodHours?: number;
   /** Start time of the monitoring period */
   since?: string;
+  /** Earliest outage timestamp — used for "All time" slot sizing */
+  earliestAt?: string;
 }
 
-export function HeartbeatTimeline({ outages, periodHours = 24, since }: HeartbeatTimelineProps) {
-  const grid = useMemo(() => {
-    // Create a grid of 5-minute slots over the period
+// ── Adaptive slot configuration ──────────────────────────────
+// Returns { slotMs, maxSlots } based on the total period being displayed.
+function getSlotConfig(totalMs: number): { slotMs: number; maxSlots: number } {
+  const HOUR = 3_600_000;
+  const DAY = 24 * HOUR;
+
+  if (totalMs <= HOUR) {
+    // 1h → 1-min slots (max 60)
+    return { slotMs: 60_000, maxSlots: 60 };
+  }
+  if (totalMs <= 6 * HOUR) {
+    // 6h → 5-min slots (max 72)
+    return { slotMs: 5 * 60_000, maxSlots: 72 };
+  }
+  if (totalMs <= DAY) {
+    // 24h → 5-min slots (max 288)
+    return { slotMs: 5 * 60_000, maxSlots: 288 };
+  }
+  if (totalMs <= 7 * DAY) {
+    // 7d → 1-hour slots (max 168)
+    return { slotMs: HOUR, maxSlots: 168 };
+  }
+  if (totalMs <= 30 * DAY) {
+    // 30d → 4-hour slots (max 180)
+    return { slotMs: 4 * HOUR, maxSlots: 180 };
+  }
+  // >30d → 6-hour slots, uncapped (based on actual range)
+  return { slotMs: 6 * HOUR, maxSlots: Math.ceil(totalMs / (6 * HOUR)) };
+}
+
+// ── Human-readable slot size label ───────────────────────────
+function slotLabel(slotMs: number): string {
+  const mins = slotMs / 60_000;
+  if (mins < 60) return `${mins} min`;
+  const hrs = mins / 60;
+  return `${hrs} ${hrs === 1 ? "hour" : "hours"}`;
+}
+
+// ── Format a Date for tooltip / axis label ───────────────────
+function formatTime(d: Date, includeDate: boolean): string {
+  const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hour12: false });
+  if (!includeDate) return time;
+  const date = d.toLocaleDateString([], { month: "short", day: "numeric" });
+  return `${date} ${time}`;
+}
+
+export function HeartbeatTimeline({
+  outages,
+  periodHours = 24,
+  since,
+  earliestAt,
+}: HeartbeatTimelineProps) {
+  const router = useRouter();
+
+  // ── Auto-refresh every 30s ──────────────────────────────────
+  const [tick, setTick] = useState(0);
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      setTick((t) => t + 1);
+      router.refresh(); // re-fetch server data
+    }, 30_000);
+    return () => clearInterval(id);
+  }, [router]);
+
+  // ── Compute grid ────────────────────────────────────────────
+  const { grid, slotMs, showDate } = useMemo(() => {
     const now = new Date();
-    const startTime = since ? new Date(since) : new Date(now.getTime() - periodHours * 60 * 60 * 1000);
+
+    // Determine start time:
+    // - Named timeframe: use `since`
+    // - All time with outages: use `earliestAt`
+    // - All time, no outages: fall back to 24h
+    let startTime: Date;
+    if (since) {
+      startTime = new Date(since);
+    } else if (earliestAt) {
+      startTime = new Date(earliestAt);
+    } else {
+      startTime = new Date(now.getTime() - periodHours * 60 * 60 * 1000);
+    }
+
     const totalMs = now.getTime() - startTime.getTime();
-    const slotMs = 5 * 60 * 1000; // 5-minute slots
-    const slotCount = Math.min(Math.ceil(totalMs / slotMs), 288); // max 24h of 5-min slots
+    const { slotMs: computedSlotMs, maxSlots } = getSlotConfig(totalMs);
+    const slotCount = Math.min(Math.ceil(totalMs / computedSlotMs), maxSlots);
+
+    // Whether to include date in labels (multi-day views)
+    const multiDay = totalMs > 24 * 3_600_000;
 
     const slots: { time: Date; status: "ok" | "outage" | "unknown" }[] = [];
 
     for (let i = 0; i < slotCount; i++) {
-      const slotStart = new Date(now.getTime() - (slotCount - i) * slotMs);
-      const slotEnd = new Date(slotStart.getTime() + slotMs);
+      const slotStart = new Date(now.getTime() - (slotCount - i) * computedSlotMs);
+      const slotEnd = new Date(slotStart.getTime() + computedSlotMs);
 
       // Check if any outage overlaps this slot
       const hasOutage = (outages || []).some((o: any) => {
@@ -40,13 +123,14 @@ export function HeartbeatTimeline({ outages, periodHours = 24, since }: Heartbea
       });
     }
 
-    return slots;
-  }, [outages, periodHours, since]);
+    return { grid: slots, slotMs: computedSlotMs, showDate: multiDay };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [outages, periodHours, since, earliestAt, tick]);
 
-  // Calculate uptime percentage
+  // ── Uptime percentage ───────────────────────────────────────
   const totalSlots = grid.length;
   const outageSlots = grid.filter((s) => s.status === "outage").length;
-  const uptimePct = totalSlots > 0 ? ((totalSlots - outageSlots) / totalSlots * 100) : 100;
+  const uptimePct = totalSlots > 0 ? ((totalSlots - outageSlots) / totalSlots) * 100 : 100;
 
   return (
     <Card>
@@ -55,11 +139,19 @@ export function HeartbeatTimeline({ outages, periodHours = 24, since }: Heartbea
           <div>
             <CardTitle className="text-base">Uptime Timeline</CardTitle>
             <CardDescription>
-              Each square = 5 minutes. Green = healthy, red = outage detected.
+              Each square = {slotLabel(slotMs)}. Green = healthy, red = outage detected.
             </CardDescription>
           </div>
           <div className="text-right">
-            <div className={`text-2xl font-bold font-mono ${uptimePct >= 99.9 ? "text-success" : uptimePct >= 99 ? "text-warning" : "text-destructive"}`}>
+            <div
+              className={`text-2xl font-bold font-mono ${
+                uptimePct >= 99.9
+                  ? "text-success"
+                  : uptimePct >= 99
+                    ? "text-warning"
+                    : "text-destructive"
+              }`}
+            >
               {uptimePct.toFixed(2)}%
             </div>
             <div className="text-[10px] text-muted-foreground">uptime</div>
@@ -72,23 +164,21 @@ export function HeartbeatTimeline({ outages, periodHours = 24, since }: Heartbea
             <div
               key={i}
               className={`w-2.5 h-2.5 rounded-[2px] ${
-                slot.status === "outage"
-                  ? "bg-destructive"
-                  : "bg-success/40"
+                slot.status === "outage" ? "bg-destructive" : "bg-success/40"
               }`}
-              title={`${slot.time.toISOString().slice(11, 16)} — ${slot.status === "outage" ? "OUTAGE" : "OK"}`}
+              title={`${formatTime(slot.time, showDate)} — ${slot.status === "outage" ? "OUTAGE" : "OK"}`}
             />
           ))}
         </div>
-        {/* Time axis */}
+        {/* Time axis — local time */}
         <div className="flex justify-between mt-2 text-[10px] text-muted-foreground font-mono">
           {grid.length > 0 && (
             <>
-              <span>{grid[0].time.toISOString().slice(11, 16)}</span>
+              <span>{formatTime(grid[0].time, showDate)}</span>
               {grid.length > 2 && (
-                <span>{grid[Math.floor(grid.length / 2)].time.toISOString().slice(11, 16)}</span>
+                <span>{formatTime(grid[Math.floor(grid.length / 2)].time, showDate)}</span>
               )}
-              <span>{grid[grid.length - 1].time.toISOString().slice(11, 16)}</span>
+              <span>{formatTime(grid[grid.length - 1].time, showDate)}</span>
             </>
           )}
         </div>

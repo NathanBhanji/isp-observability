@@ -1,5 +1,5 @@
 import { Metadata } from "next";
-import { fetchOutageSummary, fetchOutages, timeframeToSince } from "@/lib/collector";
+import { fetchOutageSummary, fetchOutages, fetchCollectorStatus, fetchLatencyLatest, timeframeToSince } from "@/lib/collector";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { VerdictCard, type VerdictStatus } from "@/components/dashboard/verdict-card";
@@ -24,15 +24,21 @@ export default async function OutagesPage({
   const { t } = await searchParams;
   const since = timeframeToSince(t);
 
-  const [summary, outageList] = await Promise.all([
+  const [summary, outageList, collectorStatus, latencyLatest] = await Promise.all([
     fetchOutageSummary(since),
     fetchOutages(since),
+    fetchCollectorStatus(),
+    fetchLatencyLatest(),
   ]);
 
   // Calculate uptime percentage
+  // For "All time", use the earliest outage timestamp if available;
+  // otherwise fall back to 30 days so the green grid still renders.
   const periodMs = since
     ? Date.now() - new Date(since).getTime()
-    : 30 * 24 * 60 * 60 * 1000;
+    : summary?.earliestAt
+      ? Date.now() - new Date(summary.earliestAt).getTime()
+      : 30 * 24 * 60 * 60 * 1000;
   const totalDownMs = summary?.totalDurationMs ?? 0;
   const uptimePct = periodMs > 0 ? ((periodMs - totalDownMs) / periodMs * 100) : 100;
   const outageCount = summary?.totalOutages ?? 0;
@@ -90,9 +96,13 @@ export default async function OutagesPage({
       {/* Heartbeat timeline */}
       <HeartbeatTimeline
         outages={outageList || []}
-        periodHours={since ? Math.max(1, (Date.now() - new Date(since).getTime()) / 3600000) : 24}
+        periodHours={Math.max(1, periodMs / 3600000)}
         since={since}
+        earliestAt={summary?.earliestAt ?? undefined}
       />
+
+      {/* Monitoring Activity — proof the system is actively checking */}
+      <MonitoringStatus collectorStatus={collectorStatus} latencyLatest={latencyLatest} />
 
       {/* KPI Cards — only show when there are actual outages */}
       {outageCount > 0 && (
@@ -181,6 +191,178 @@ export default async function OutagesPage({
       </Card>
     </div>
   );
+}
+
+// ── Monitoring Status Card ────────────────────────────────────
+// Shows proof that the heartbeat system is actively monitoring.
+// Without this, "no outages" is indistinguishable from "collector is off."
+
+function MonitoringStatus({
+  collectorStatus,
+  latencyLatest,
+}: {
+  collectorStatus: any;
+  latencyLatest: any[] | null;
+}) {
+  const heartbeat = collectorStatus?.collectors?.heartbeat;
+  const ping = collectorStatus?.collectors?.ping;
+  const uptimeSec = collectorStatus?.uptime
+    ? Math.floor(collectorStatus.uptime / 1000)
+    : null;
+
+  // Latest ping timestamp from any target
+  const latestPingTs = latencyLatest?.reduce((latest: string | null, row: any) => {
+    if (!row.timestamp) return latest;
+    if (!latest || row.timestamp > latest) return row.timestamp;
+    return latest;
+  }, null);
+
+  // Determine if monitoring is actually running
+  const isHeartbeatActive = heartbeat?.lastRun != null;
+  const isPingActive = latestPingTs != null;
+  const isActive = isHeartbeatActive || isPingActive;
+
+  // How long ago was the last heartbeat check?
+  const heartbeatAgo = heartbeat?.lastRun
+    ? formatRelative(new Date(heartbeat.lastRun))
+    : null;
+  const pingAgo = latestPingTs
+    ? formatRelative(new Date(latestPingTs))
+    : null;
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <CardTitle className="text-base">Monitoring Activity</CardTitle>
+            {isActive ? (
+              <Badge variant="secondary" className="text-[10px] px-1.5 py-0 bg-success/15 text-success border-success/30">
+                ACTIVE
+              </Badge>
+            ) : collectorStatus ? (
+              <Badge variant="destructive" className="text-[10px] px-1.5 py-0">
+                STALE
+              </Badge>
+            ) : (
+              <Badge variant="destructive" className="text-[10px] px-1.5 py-0">
+                UNREACHABLE
+              </Badge>
+            )}
+          </div>
+          {uptimeSec != null && (
+            <span className="text-[10px] text-muted-foreground font-mono">
+              Collector uptime: {formatUptimeDuration(uptimeSec)}
+            </span>
+          )}
+        </div>
+        <CardDescription>
+          How we know your connection is being monitored
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+          {/* Heartbeat checker */}
+          <div>
+            <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">
+              Connectivity Checker
+            </div>
+            <div className="font-mono font-medium">
+              {heartbeatAgo ?? "No data"}
+            </div>
+            <div className="text-[10px] text-muted-foreground">
+              last check
+            </div>
+          </div>
+
+          {/* Heartbeat run count */}
+          <div>
+            <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">
+              Checks Performed
+            </div>
+            <div className="font-mono font-medium">
+              {heartbeat?.runCount != null
+                ? heartbeat.runCount.toLocaleString()
+                : "--"}
+            </div>
+            <div className="text-[10px] text-muted-foreground">
+              every 5 seconds
+            </div>
+          </div>
+
+          {/* Latest ping measurement */}
+          <div>
+            <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">
+              Latest Ping
+            </div>
+            <div className="font-mono font-medium">
+              {pingAgo ?? "No data"}
+            </div>
+            <div className="text-[10px] text-muted-foreground">
+              ICMP latency check
+            </div>
+          </div>
+
+          {/* Ping run count */}
+          <div>
+            <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1">
+              Ping Windows
+            </div>
+            <div className="font-mono font-medium">
+              {ping?.runCount != null
+                ? ping.runCount.toLocaleString()
+                : "--"}
+            </div>
+            <div className="text-[10px] text-muted-foreground">
+              every 60 seconds
+            </div>
+          </div>
+        </div>
+
+        {/* Error/warning row — only show if something is wrong */}
+        {(heartbeat?.errorCount > 0 || heartbeat?.lastError || heartbeat?.lastWarning) && (
+          <div className="mt-3 pt-3 border-t border-border/50 text-xs text-muted-foreground">
+            {heartbeat.errorCount > 0 && (
+              <span className="text-destructive font-mono mr-4">
+                {heartbeat.errorCount} error{heartbeat.errorCount > 1 ? "s" : ""}
+              </span>
+            )}
+            {heartbeat.lastWarning && (
+              <span className="text-warning font-mono">
+                Warning: {heartbeat.lastWarning}
+              </span>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+// ── Formatting helpers ───────────────────────────────────────
+
+/** Format a date as a relative time string (e.g. "3s ago", "2m ago") */
+function formatRelative(date: Date): string {
+  const diffMs = Date.now() - date.getTime();
+  if (diffMs < 0) return "just now";
+  const secs = Math.floor(diffMs / 1000);
+  if (secs < 60) return `${secs}s ago`;
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  return `${days}d ago`;
+}
+
+/** Format uptime in seconds to a human-readable string */
+function formatUptimeDuration(totalSec: number): string {
+  const days = Math.floor(totalSec / 86400);
+  const hrs = Math.floor((totalSec % 86400) / 3600);
+  const mins = Math.floor((totalSec % 3600) / 60);
+  if (days > 0) return `${days}d ${hrs}h`;
+  if (hrs > 0) return `${hrs}h ${mins}m`;
+  return `${mins}m`;
 }
 
 function formatDuration(ms: number): string {

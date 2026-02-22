@@ -10,10 +10,16 @@ interface VerdictMetric {
   subValue?: string;
 }
 
+interface VerdictFinding {
+  text: string;
+  severity?: "critical" | "warn" | "info";
+}
+
 interface VerdictCardProps {
   status: VerdictStatus;
   headline: string;
-  description: string;
+  description?: string;
+  findings?: VerdictFinding[];
   metrics?: VerdictMetric[];
   className?: string;
 }
@@ -64,7 +70,13 @@ const STATUS_CONFIG: Record<
   },
 };
 
-export function VerdictCard({ status, headline, description, metrics, className }: VerdictCardProps) {
+const FINDING_DOT: Record<string, string> = {
+  critical: "bg-verdict-critical",
+  warn: "bg-verdict-poor",
+  info: "bg-muted-foreground/50",
+};
+
+export function VerdictCard({ status, headline, description, findings, metrics, className }: VerdictCardProps) {
   const config = STATUS_CONFIG[status];
   const Icon = config.icon;
 
@@ -72,7 +84,7 @@ export function VerdictCard({ status, headline, description, metrics, className 
     <Card className={cn("border-l-4 overflow-hidden", config.border, config.bg, className)}>
       <CardContent className="pt-3 pb-3">
         <div className="flex items-start gap-3">
-          {/* Left: badge + text */}
+          {/* Left: badge + headline + findings */}
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 mb-1">
               <span className={cn("inline-flex items-center gap-1 rounded-md px-1.5 py-px text-[10px] font-medium border", config.text, config.badgeBg, config.badgeBorder)}>
@@ -83,9 +95,22 @@ export function VerdictCard({ status, headline, description, metrics, className 
             <h2 className="text-base font-semibold tracking-tight">
               {headline}
             </h2>
-            <p className="text-xs text-muted-foreground leading-relaxed mt-0.5">
-              {description}
-            </p>
+
+            {/* Structured findings list */}
+            {findings && findings.length > 0 ? (
+              <ul className="mt-1.5 space-y-0.5">
+                {findings.map((f, i) => (
+                  <li key={i} className="flex items-start gap-1.5 text-xs text-muted-foreground leading-snug">
+                    <span className={cn("mt-[5px] h-1.5 w-1.5 rounded-full shrink-0", FINDING_DOT[f.severity ?? "info"])} />
+                    {f.text}
+                  </li>
+                ))}
+              </ul>
+            ) : description ? (
+              <p className="text-xs text-muted-foreground leading-relaxed mt-0.5">
+                {description}
+              </p>
+            ) : null}
           </div>
 
           {/* Right: metrics inline */}
