@@ -339,7 +339,7 @@ evidence.get("/summary", (c) => {
            AVG(speed_mbps) as avg_speed,
            COUNT(*) as cnt
          FROM throughput_tests
-         WHERE stream_count = 1 AND direction = 'download' ${timeFilter()}
+         WHERE stream_count > 1 AND direction = 'download' ${timeFilter()}
          GROUP BY hour
          ORDER BY hour`
       )
