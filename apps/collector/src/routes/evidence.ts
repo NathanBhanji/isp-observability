@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { getDb } from "../db";
 import { PING_TARGETS, TARGET_LABELS, TARGET_IPS } from "@isp/shared";
+import { median } from "../lib/stats";
 
 const evidence = new Hono();
 
@@ -345,16 +346,44 @@ evidence.get("/summary", (c) => {
       )
       .all(...timeParams()) as any[];
 
-    const peakHours = new Set([19, 20, 21, 22]);
-    const offPeakHours = new Set([2, 3, 4, 5, 6]);
+    // Fetch every individual data point for peak / off-peak windows so we
+    // can compute proper medians across all days, not averages of averages.
+    const peakHoursIn = "(19, 20, 21, 22)";
+    const offPeakHoursIn = "(2, 3, 4, 5, 6)";
 
-    const peakLatency = hourlyLatency.filter((h: any) => peakHours.has(h.hour));
-    const offPeakLatency = hourlyLatency.filter((h: any) => offPeakHours.has(h.hour));
-    const peakThroughput = hourlyThroughput.filter((h: any) => peakHours.has(h.hour));
-    const offPeakThroughput = hourlyThroughput.filter((h: any) => offPeakHours.has(h.hour));
+    const rawPeakLatency = db
+      .prepare(
+        `SELECT rtt_mean, loss_pct FROM ping_windows
+         WHERE target_id != 'gateway'
+           AND CAST(strftime('%H', timestamp) AS INTEGER) IN ${peakHoursIn}
+           ${timeFilter()}`)
+      .all(...timeParams()) as { rtt_mean: number; loss_pct: number }[];
 
-    const avgOf = (arr: any[], field: string) =>
-      arr.length > 0 ? arr.reduce((s: number, r: any) => s + (r[field] ?? 0), 0) / arr.length : null;
+    const rawOffPeakLatency = db
+      .prepare(
+        `SELECT rtt_mean, loss_pct FROM ping_windows
+         WHERE target_id != 'gateway'
+           AND CAST(strftime('%H', timestamp) AS INTEGER) IN ${offPeakHoursIn}
+           ${timeFilter()}`)
+      .all(...timeParams()) as { rtt_mean: number; loss_pct: number }[];
+
+    const rawPeakSpeed = db
+      .prepare(
+        `SELECT speed_mbps FROM throughput_tests
+         WHERE stream_count > 1 AND direction = 'download'
+           AND CAST(strftime('%H', timestamp) AS INTEGER) IN ${peakHoursIn}
+           ${timeFilter()}`)
+      .all(...timeParams()) as { speed_mbps: number }[];
+
+    const rawOffPeakSpeed = db
+      .prepare(
+        `SELECT speed_mbps FROM throughput_tests
+         WHERE stream_count > 1 AND direction = 'download'
+           AND CAST(strftime('%H', timestamp) AS INTEGER) IN ${offPeakHoursIn}
+           ${timeFilter()}`)
+      .all(...timeParams()) as { speed_mbps: number }[];
+
+    const safeMedian = (vals: number[]) => vals.length > 0 ? Math.round(median(vals) * 100) / 100 : null;
 
     timeOfDay = {
       hourlyLatency: hourlyLatency.map((h: any) => ({
@@ -370,20 +399,20 @@ evidence.get("/summary", (c) => {
         samples: h.cnt,
       })),
       peak: {
-        avgRtt: avgOf(peakLatency, "avg_rtt") != null
-          ? Math.round(avgOf(peakLatency, "avg_rtt")! * 100) / 100 : null,
-        avgLoss: avgOf(peakLatency, "avg_loss") != null
-          ? Math.round(avgOf(peakLatency, "avg_loss")! * 1000) / 1000 : null,
-        avgSpeed: avgOf(peakThroughput, "avg_speed") != null
-          ? Math.round(avgOf(peakThroughput, "avg_speed")! * 100) / 100 : null,
+        avgRtt: safeMedian(rawPeakLatency.map((r) => r.rtt_mean).filter(Boolean)),
+        avgLoss: rawPeakLatency.length > 0
+          ? Math.round(median(rawPeakLatency.map((r) => r.loss_pct).filter((v) => v != null)) * 1000) / 1000
+          : null,
+        avgSpeed: safeMedian(rawPeakSpeed.map((r) => r.speed_mbps).filter(Boolean)),
+        samples: rawPeakSpeed.length,
       },
       offPeak: {
-        avgRtt: avgOf(offPeakLatency, "avg_rtt") != null
-          ? Math.round(avgOf(offPeakLatency, "avg_rtt")! * 100) / 100 : null,
-        avgLoss: avgOf(offPeakLatency, "avg_loss") != null
-          ? Math.round(avgOf(offPeakLatency, "avg_loss")! * 1000) / 1000 : null,
-        avgSpeed: avgOf(offPeakThroughput, "avg_speed") != null
-          ? Math.round(avgOf(offPeakThroughput, "avg_speed")! * 100) / 100 : null,
+        avgRtt: safeMedian(rawOffPeakLatency.map((r) => r.rtt_mean).filter(Boolean)),
+        avgLoss: rawOffPeakLatency.length > 0
+          ? Math.round(median(rawOffPeakLatency.map((r) => r.loss_pct).filter((v) => v != null)) * 1000) / 1000
+          : null,
+        avgSpeed: safeMedian(rawOffPeakSpeed.map((r) => r.speed_mbps).filter(Boolean)),
+        samples: rawOffPeakSpeed.length,
       },
     };
   } catch (e) {
