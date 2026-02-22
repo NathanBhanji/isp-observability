@@ -26,7 +26,22 @@ export const metadata: Metadata = {
     template: "%s | ISP Observatory",
   },
   description:
-    "Network performance monitoring and ISP accountability dashboard",
+    "Continuous ISP speed, latency, and congestion monitoring — holding Hyperoptic accountable with real data.",
+  metadataBase: new URL("https://isp.bhanji.dev"),
+  openGraph: {
+    type: "website",
+    siteName: "ISP Observatory",
+    title: "ISP Observatory",
+    description:
+      "Continuous ISP speed, latency, and congestion monitoring — holding Hyperoptic accountable with real data.",
+    locale: "en_GB",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "ISP Observatory",
+    description:
+      "Continuous ISP speed, latency, and congestion monitoring — holding Hyperoptic accountable with real data.",
+  },
 };
 
 export default function RootLayout({
