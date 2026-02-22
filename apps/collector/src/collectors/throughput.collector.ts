@@ -24,8 +24,8 @@ export class ThroughputCollector implements Collector {
 
     const insertTest = db.prepare(`
       INSERT INTO throughput_tests (
-        timestamp, stream_count, bytes_transferred, duration_ms, speed_mbps, source_url, source_type, direction, idle_latency_ms, wan_rx_delta, wan_tx_delta
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        timestamp, stream_count, bytes_transferred, duration_ms, speed_mbps, source_url, source_type, direction, idle_latency_ms, wan_rx_delta, wan_tx_delta, session_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const insertTimeseries = db.prepare(`
@@ -130,7 +130,7 @@ export class ThroughputCollector implements Collector {
       const singleResult = insertTest.run(
         timestamp, 1, single.bytesDownloaded, single.durationMs,
         single.speedMbps, `ookla://${single.serverHost}`, "ethernet", "download",
-        single.idleLatencyMs ?? null, rxDelta, txDelta
+        single.idleLatencyMs ?? null, rxDelta, txDelta, sessionId
       );
       const singleTestId = Number(singleResult.lastInsertRowid);
 
@@ -187,7 +187,7 @@ export class ThroughputCollector implements Collector {
       const multiResult = insertTest.run(
         multiTimestamp, MULTI_STREAM_COUNT, multi.bytesDownloaded,
         multi.durationMs, multi.speedMbps, `ookla://${multi.serverHost}`, "ethernet", "download",
-        multi.idleLatencyMs ?? null, rxDeltaMulti, txDeltaMulti
+        multi.idleLatencyMs ?? null, rxDeltaMulti, txDeltaMulti, sessionId
       );
       const multiTestId = Number(multiResult.lastInsertRowid);
 
@@ -265,7 +265,7 @@ export class ThroughputCollector implements Collector {
       const ulResult = insertTest.run(
         ulTimestamp, 1, upload.bytesUploaded, upload.durationMs,
         upload.speedMbps, `ookla://${upload.serverHost}`, "ethernet", "upload",
-        upload.idleLatencyMs ?? null, rxDeltaUl, txDeltaUl
+        upload.idleLatencyMs ?? null, rxDeltaUl, txDeltaUl, sessionId
       );
       const ulTestId = Number(ulResult.lastInsertRowid);
 
@@ -309,7 +309,7 @@ export class ThroughputCollector implements Collector {
         ulMultiTimestamp, MULTI_STREAM_COUNT, uploadMulti.bytesUploaded,
         uploadMulti.durationMs, uploadMulti.speedMbps, `ookla://${uploadMulti.serverHost}`,
         "ethernet", "upload",
-        uploadMulti.idleLatencyMs ?? null, rxDeltaUlMulti, txDeltaUlMulti
+        uploadMulti.idleLatencyMs ?? null, rxDeltaUlMulti, txDeltaUlMulti, sessionId
       );
       const ulMultiTestId = Number(ulMultiResult.lastInsertRowid);
 

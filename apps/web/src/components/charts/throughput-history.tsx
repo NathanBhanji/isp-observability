@@ -1,10 +1,11 @@
 "use client";
 
-import React from "react";
+import React, { useMemo } from "react";
 import {
   Area,
   AreaChart,
   CartesianGrid,
+  ReferenceArea,
   ReferenceLine,
   XAxis,
   YAxis,
@@ -24,6 +25,8 @@ import {
   CardTitle,
   CardDescription,
 } from "@/components/ui/card";
+import { useChartBrush } from "@/hooks/use-chart-brush";
+import { formatTimestamp } from "@/lib/time-format";
 
 interface ThroughputHistoryProps {
   data: any[];
@@ -34,56 +37,56 @@ export function ThroughputHistory({
   data,
   direction = "download",
 }: ThroughputHistoryProps) {
+  const brush = useChartBrush();
+
   // Group tests by approximate time into single/multi pairs
-  const pairs: { time: string; single: number; multi: number; wanTotal: number }[] = [];
+  const pairs = useMemo(() => {
+    const result: { timestamp: string; time: string; single: number; multi: number; wanTotal: number }[] = [];
+    const singleTests = data?.filter((t: any) => t.stream_count === 1) || [];
+    const multiTests = data?.filter((t: any) => t.stream_count > 1) || [];
 
-  const singleTests = data?.filter((t: any) => t.stream_count === 1) || [];
-  const multiTests = data?.filter((t: any) => t.stream_count > 1) || [];
-
-  const maxLen = Math.max(singleTests.length, multiTests.length);
-  for (let i = 0; i < maxLen; i++) {
-    const s = singleTests[i];
-    const m = multiTests[i];
-    const ts = s?.timestamp || m?.timestamp || "";
-    const multiSpd = m?.speed_mbps || 0;
-    const singleSpd = s?.speed_mbps || 0;
-    // WAN total = router-reported traffic during the test.
-    // Clamp: must be >= measured speed (it includes the test itself).
-    // Fallback: if UPnP data is missing, use measured speed so the line
-    // stays continuous instead of showing gaps.
-    let wanSpeed: number;
-    if (m?.wan_speed_mbps != null) {
-      wanSpeed = Math.max(m.wan_speed_mbps, multiSpd);
-    } else if (s?.wan_speed_mbps != null && multiSpd === 0) {
-      wanSpeed = Math.max(s.wan_speed_mbps, singleSpd);
-    } else {
-      // No WAN data — fall back to measured speed (minimum possible router traffic)
-      wanSpeed = multiSpd || singleSpd;
+    const maxLen = Math.max(singleTests.length, multiTests.length);
+    for (let i = 0; i < maxLen; i++) {
+      const s = singleTests[i];
+      const m = multiTests[i];
+      const ts = s?.timestamp || m?.timestamp || "";
+      const multiSpd = m?.speed_mbps || 0;
+      const singleSpd = s?.speed_mbps || 0;
+      let wanSpeed: number;
+      if (m?.wan_speed_mbps != null) {
+        wanSpeed = Math.max(m.wan_speed_mbps, multiSpd);
+      } else if (s?.wan_speed_mbps != null && multiSpd === 0) {
+        wanSpeed = Math.max(s.wan_speed_mbps, singleSpd);
+      } else {
+        wanSpeed = multiSpd || singleSpd;
+      }
+      result.push({
+        timestamp: ts,
+        time: ts.slice(11, 16),
+        single: singleSpd,
+        multi: multiSpd,
+        wanTotal: Math.round(wanSpeed * 10) / 10,
+      });
     }
-    pairs.push({
-      time: ts.slice(11, 16),
-      single: singleSpd,
-      multi: multiSpd,
-      wanTotal: Math.round(wanSpeed * 10) / 10,
-    });
-  }
-
-  // wanTotal is always set (falls back to measured speed when UPnP data missing)
-  const hasWanData = true;
+    return result;
+  }, [data]);
 
   // Compute averages for reference lines
-  const singleValues = pairs.map((p) => p.single).filter((v) => v > 0);
-  const multiValues = pairs.map((p) => p.multi).filter((v) => v > 0);
-  const singleAvg =
-    singleValues.length > 0
-      ? singleValues.reduce((a, b) => a + b, 0) / singleValues.length
-      : null;
-  const multiAvg =
-    multiValues.length > 0
-      ? multiValues.reduce((a, b) => a + b, 0) / multiValues.length
-      : null;
+  const { singleAvg, multiAvg } = useMemo(() => {
+    const singleValues = pairs.map((p) => p.single).filter((v) => v > 0);
+    const multiValues = pairs.map((p) => p.multi).filter((v) => v > 0);
+    return {
+      singleAvg: singleValues.length > 0
+        ? singleValues.reduce((a, b) => a + b, 0) / singleValues.length
+        : null,
+      multiAvg: multiValues.length > 0
+        ? multiValues.reduce((a, b) => a + b, 0) / multiValues.length
+        : null,
+    };
+  }, [pairs]);
 
   const label = direction === "upload" ? "Upload" : "Download";
+  const gradId = direction === "upload" ? "ul" : "dl";
 
   return (
     <Card>
@@ -96,59 +99,45 @@ export function ThroughputHistory({
               avg: {singleAvg.toFixed(0)} / {multiAvg.toFixed(0)} Mbps
             </span>
           )}
+          <span className="ml-2 text-[10px] text-muted-foreground/60">
+            Drag to zoom
+          </span>
         </CardDescription>
       </CardHeader>
       <CardContent>
         <ChartContainer
           config={throughputChartConfig}
-          className="min-h-[250px] w-full"
+          className="min-h-[250px] w-full select-none"
         >
-          <AreaChart data={pairs} accessibilityLayer>
+          <AreaChart
+            data={pairs}
+            accessibilityLayer
+            onMouseDown={brush.onMouseDown}
+            onMouseMove={brush.onMouseMove}
+            onMouseUp={brush.onMouseUp}
+          >
             <defs>
-              <linearGradient id="fillSingle" x1="0" y1="0" x2="0" y2="1">
-                <stop
-                  offset="5%"
-                  stopColor="var(--color-single)"
-                  stopOpacity={0.8}
-                />
-                <stop
-                  offset="95%"
-                  stopColor="var(--color-single)"
-                  stopOpacity={0.1}
-                />
+              <linearGradient id={`fillSingle-${gradId}`} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="var(--color-single)" stopOpacity={0.8} />
+                <stop offset="95%" stopColor="var(--color-single)" stopOpacity={0.1} />
               </linearGradient>
-              <linearGradient id="fillMulti" x1="0" y1="0" x2="0" y2="1">
-                <stop
-                  offset="5%"
-                  stopColor="var(--color-multi)"
-                  stopOpacity={0.8}
-                />
-                <stop
-                  offset="95%"
-                  stopColor="var(--color-multi)"
-                  stopOpacity={0.1}
-                />
+              <linearGradient id={`fillMulti-${gradId}`} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="var(--color-multi)" stopOpacity={0.8} />
+                <stop offset="95%" stopColor="var(--color-multi)" stopOpacity={0.1} />
               </linearGradient>
-              <linearGradient id="fillWanTotal" x1="0" y1="0" x2="0" y2="1">
-                <stop
-                  offset="5%"
-                  stopColor="var(--color-wanTotal)"
-                  stopOpacity={0.15}
-                />
-                <stop
-                  offset="95%"
-                  stopColor="var(--color-wanTotal)"
-                  stopOpacity={0.02}
-                />
+              <linearGradient id={`fillWanTotal-${gradId}`} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="var(--color-wanTotal)" stopOpacity={0.15} />
+                <stop offset="95%" stopColor="var(--color-wanTotal)" stopOpacity={0.02} />
               </linearGradient>
             </defs>
             <CartesianGrid vertical={false} strokeDasharray="3 3" />
             <XAxis
-              dataKey="time"
+              dataKey="timestamp"
               tickLine={false}
               axisLine={false}
               tickMargin={8}
               fontSize={11}
+              tickFormatter={(v) => formatTimestamp(v, pairs)}
             />
             <YAxis
               tickLine={false}
@@ -160,21 +149,23 @@ export function ThroughputHistory({
             <ChartTooltip
               content={
                 <ChartTooltipContent
-                  labelFormatter={(label) => label}
-                  formatter={(value, name, item, index) => (
+                  labelFormatter={(_, payload) => {
+                    const ts = payload?.[0]?.payload?.timestamp;
+                    if (!ts) return "";
+                    const d = new Date(ts);
+                    return d.toLocaleString("en-GB", {
+                      day: "numeric", month: "short",
+                      hour: "2-digit", minute: "2-digit",
+                    });
+                  }}
+                  formatter={(value, name, item) => (
                     <div className="flex items-center gap-2">
                       <div
                         className="h-2.5 w-2.5 shrink-0 rounded-[2px] bg-(--color-bg)"
-                        style={
-                          {
-                            "--color-bg": `var(--color-${item.dataKey})`,
-                          } as React.CSSProperties
-                        }
+                        style={{ "--color-bg": `var(--color-${item.dataKey})` } as React.CSSProperties}
                       />
                       <span className="text-muted-foreground">
-                        {throughputChartConfig[
-                          item.dataKey as keyof typeof throughputChartConfig
-                        ]?.label ?? name}
+                        {throughputChartConfig[item.dataKey as keyof typeof throughputChartConfig]?.label ?? name}
                       </span>
                       <span className="ml-auto font-mono font-medium tabular-nums text-foreground">
                         {Number(value).toFixed(0)} Mbps
@@ -185,7 +176,6 @@ export function ThroughputHistory({
               }
             />
             <ChartLegend content={<ChartLegendContent />} />
-            {/* Average reference lines */}
             {singleAvg != null && (
               <ReferenceLine
                 y={singleAvg}
@@ -214,27 +204,33 @@ export function ThroughputHistory({
                 }}
               />
             )}
+            {brush.referenceAreaProps && (
+              <ReferenceArea {...brush.referenceAreaProps} />
+            )}
             <Area
               dataKey="wanTotal"
               type="monotone"
-              fill="url(#fillWanTotal)"
+              fill={`url(#fillWanTotal-${gradId})`}
               stroke="var(--color-wanTotal)"
               strokeWidth={1.5}
               strokeDasharray="4 3"
+              isAnimationActive={false}
             />
             <Area
               dataKey="multi"
               type="monotone"
-              fill="url(#fillMulti)"
+              fill={`url(#fillMulti-${gradId})`}
               stroke="var(--color-multi)"
               strokeWidth={2}
+              isAnimationActive={false}
             />
             <Area
               dataKey="single"
               type="monotone"
-              fill="url(#fillSingle)"
+              fill={`url(#fillSingle-${gradId})`}
               stroke="var(--color-single)"
               strokeWidth={2}
+              isAnimationActive={false}
             />
           </AreaChart>
         </ChartContainer>

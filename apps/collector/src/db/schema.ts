@@ -178,6 +178,7 @@ export function initializeDatabase(db: Database): void {
   migrateRipeMeasuredAt(db);
   migrateThroughputLatency(db);
   migrateThroughputWanCounters(db);
+  migrateThroughputSessionId(db);
 
 }
 
@@ -248,6 +249,17 @@ function migrateThroughputWanCounters(db: Database): void {
   }
   if (!names.has("wan_tx_delta")) {
     db.exec(`ALTER TABLE throughput_tests ADD COLUMN wan_tx_delta INTEGER`);
+  }
+}
+
+/** Add session_id column to throughput_tests so we can group single+multi pairs per cycle (idempotent). */
+function migrateThroughputSessionId(db: Database): void {
+  const existing = db.prepare("PRAGMA table_info(throughput_tests)").all() as { name: string }[];
+  const names = new Set(existing.map((c) => c.name));
+
+  if (!names.has("session_id")) {
+    db.exec(`ALTER TABLE throughput_tests ADD COLUMN session_id TEXT`);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_throughput_session ON throughput_tests(session_id)`);
   }
 }
 

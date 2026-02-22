@@ -3,7 +3,8 @@ import {
   fetchTracerouteLatest,
   fetchTracerouteHistory,
   fetchRipeAtlasLatest,
-  timeframeToSince,
+  resolveTimeRange,
+  filterByUntil,
 } from "@/lib/collector";
 import {
   DESTINATION_LABELS,
@@ -66,16 +67,17 @@ function median(arr: number[]): number {
 export default async function TraceroutePage({
   searchParams,
 }: {
-  searchParams: Promise<{ t?: string }>;
+  searchParams: Promise<{ t?: string; from?: string; to?: string }>;
 }) {
-  const { t } = await searchParams;
-  const since = timeframeToSince(t);
+  const { t, from, to } = await searchParams;
+  const { since, until } = resolveTimeRange({ t, from, to });
 
-  const [latest, history, ripeAtlas] = await Promise.all([
+  const [latest, historyRaw, ripeAtlas] = await Promise.all([
     fetchTracerouteLatest(),
     fetchTracerouteHistory(since),
     fetchRipeAtlasLatest(),
   ]);
+  const history = filterByUntil(historyRaw, until);
 
   // Index our traceroutes by destination
   const ourByDest = new Map<string, any>();

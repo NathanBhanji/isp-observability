@@ -1,12 +1,13 @@
 "use client";
 
+import { useMemo } from "react";
 import {
   Line,
   LineChart,
   CartesianGrid,
+  ReferenceArea,
   XAxis,
   YAxis,
-  ReferenceLine,
 } from "recharts";
 import {
   ChartContainer,
@@ -18,6 +19,8 @@ import {
 import { hopChartConfig } from "@/lib/chart-config";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { PING_TARGETS } from "@isp/shared";
+import { useChartBrush } from "@/hooks/use-chart-brush";
+import { formatTimestamp } from "@/lib/time-format";
 
 interface LatencyTimelineProps {
   data: any[];
@@ -32,21 +35,22 @@ export function LatencyTimeline({
   title = "Response Time Over Time",
   description = "Response time for each step your traffic passes through",
 }: LatencyTimelineProps) {
+  const brush = useChartBrush();
+
   // Transform data: group by timestamp, create one row per time point with all hops
-  const timeMap = new Map<string, any>();
-
-  for (const row of data) {
-    const time = row.timestamp?.slice(11, 19) || ""; // HH:MM:SS
-    if (!timeMap.has(row.timestamp)) {
-      timeMap.set(row.timestamp, { time, timestamp: row.timestamp });
+  const chartData = useMemo(() => {
+    const timeMap = new Map<string, any>();
+    for (const row of data) {
+      if (!timeMap.has(row.timestamp)) {
+        timeMap.set(row.timestamp, { timestamp: row.timestamp });
+      }
+      const point = timeMap.get(row.timestamp)!;
+      point[row.target_id] = row[metric];
     }
-    const point = timeMap.get(row.timestamp)!;
-    point[row.target_id] = row[metric];
-  }
-
-  const chartData = Array.from(timeMap.values()).sort(
-    (a, b) => a.timestamp.localeCompare(b.timestamp)
-  );
+    return Array.from(timeMap.values()).sort(
+      (a, b) => a.timestamp.localeCompare(b.timestamp)
+    );
+  }, [data, metric]);
 
   const metricLabel =
     metric === "rtt_mean"
@@ -63,18 +67,27 @@ export function LatencyTimeline({
         <CardTitle className="text-base">{title}</CardTitle>
         <CardDescription>
           {description} ({metricLabel} in ms)
+          <span className="ml-2 text-[10px] text-muted-foreground/60">
+            Drag to zoom
+          </span>
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <ChartContainer config={hopChartConfig} className="min-h-[300px] w-full">
-          <LineChart data={chartData} accessibilityLayer>
+        <ChartContainer config={hopChartConfig} className="min-h-[300px] w-full select-none">
+          <LineChart
+            data={chartData}
+            accessibilityLayer
+            onMouseDown={brush.onMouseDown}
+            onMouseMove={brush.onMouseMove}
+            onMouseUp={brush.onMouseUp}
+          >
             <CartesianGrid vertical={false} strokeDasharray="3 3" />
             <XAxis
-              dataKey="time"
+              dataKey="timestamp"
               tickLine={false}
               axisLine={false}
               tickMargin={8}
-              tickFormatter={(v) => v.slice(0, 5)}
+              tickFormatter={(v) => formatTimestamp(v, chartData)}
               fontSize={11}
             />
             <YAxis
@@ -86,9 +99,25 @@ export function LatencyTimeline({
               domain={[0, "auto"]}
             />
             <ChartTooltip
-              content={<ChartTooltipContent indicator="line" />}
+              content={
+                <ChartTooltipContent
+                  indicator="line"
+                  labelFormatter={(_, payload) => {
+                    const ts = payload?.[0]?.payload?.timestamp;
+                    if (!ts) return "";
+                    const d = new Date(ts);
+                    return d.toLocaleString("en-GB", {
+                      day: "numeric", month: "short",
+                      hour: "2-digit", minute: "2-digit",
+                    });
+                  }}
+                />
+              }
             />
             <ChartLegend content={<ChartLegendContent />} />
+            {brush.referenceAreaProps && (
+              <ReferenceArea {...brush.referenceAreaProps} />
+            )}
             {PING_TARGETS.map((target) => (
               <Line
                 key={target.id}
@@ -98,6 +127,7 @@ export function LatencyTimeline({
                 strokeWidth={1.5}
                 dot={false}
                 connectNulls
+                isAnimationActive={false}
               />
             ))}
           </LineChart>

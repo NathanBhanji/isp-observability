@@ -3,7 +3,8 @@ import {
   fetchEvidenceSummary,
   fetchThroughputHistory,
   fetchLatencyHistory,
-  timeframeToSince,
+  resolveTimeRange,
+  filterByUntil,
 } from "@/lib/collector";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -125,17 +126,21 @@ function trendArrow(delta: number, threshold = 1) {
 export default async function OverviewPage({
   searchParams,
 }: {
-  searchParams: Promise<{ t?: string }>;
+  searchParams: Promise<{ t?: string; from?: string; to?: string }>;
 }) {
-  const { t } = await searchParams;
-  const since = timeframeToSince(t);
+  const { t, from, to } = await searchParams;
+  const { since, until } = resolveTimeRange({ t, from, to });
 
-  const [evidence, throughputHistory, latencyHistory, gatewayLatencyHistory] = await Promise.all([
+  const [evidence, throughputHistoryRaw, latencyHistoryRaw, gatewayLatencyHistoryRaw] = await Promise.all([
     fetchEvidenceSummary(since),
     fetchThroughputHistory(since),
     fetchLatencyHistory(since),
     fetchLatencyHistory(since, "gateway"),
   ]);
+
+  const throughputHistory = filterByUntil(throughputHistoryRaw, until);
+  const latencyHistory = filterByUntil(latencyHistoryRaw, until);
+  const gatewayLatencyHistory = filterByUntil(gatewayLatencyHistoryRaw, until);
 
   // ── Period ─────────────────────────────────────────────────
   const periodStart = evidence?.collectionPeriod?.start;

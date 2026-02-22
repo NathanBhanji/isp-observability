@@ -85,15 +85,31 @@ throughput.get("/latest", (c) => {
   });
 });
 
-/** Throughput history — ?since=ISO or all time */
+/** Throughput history — ?since=ISO or all time.
+ *  Only returns tests from complete sessions (both single + multi for each direction).
+ *  Pre-migration rows (NULL session_id) are always included. */
 throughput.get("/history", (c) => {
   const since = c.req.query("since");
   const db = getDb();
 
-  const where = since ? "WHERE timestamp >= ?" : "";
+  const sinceClause = since ? "AND t.timestamp >= ?" : "";
   const params = since ? [since] : [];
   const rows = db
-    .prepare(`SELECT * FROM throughput_tests ${where} ORDER BY timestamp ASC`)
+    .prepare(
+      `SELECT t.* FROM throughput_tests t
+       WHERE (
+         t.session_id IS NULL
+         OR EXISTS (
+           SELECT 1 FROM throughput_tests t2
+           WHERE t2.session_id = t.session_id
+             AND t2.direction = t.direction
+             AND ((t.stream_count = 1 AND t2.stream_count > 1)
+               OR (t.stream_count > 1 AND t2.stream_count = 1))
+         )
+       )
+       ${sinceClause}
+       ORDER BY t.timestamp ASC`
+    )
     .all(...params);
   return c.json(rows);
 });

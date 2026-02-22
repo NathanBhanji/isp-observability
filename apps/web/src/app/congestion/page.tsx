@@ -4,7 +4,8 @@ import {
   fetchCorrelationHistory,
   fetchLatencyHistory,
   fetchThroughputHistory,
-  timeframeToSince,
+  resolveTimeRange,
+  filterByUntil,
 } from "@/lib/collector";
 import { TARGET_LABELS } from "@isp/shared";
 import { VerdictCard, type VerdictStatus } from "@/components/dashboard/verdict-card";
@@ -18,18 +19,22 @@ export const metadata: Metadata = { title: "Congestion Analysis" };
 export default async function CongestionPage({
   searchParams,
 }: {
-  searchParams: Promise<{ t?: string }>;
+  searchParams: Promise<{ t?: string; from?: string; to?: string }>;
 }) {
-  const { t } = await searchParams;
-  const since = timeframeToSince(t);
+  const { t, from, to } = await searchParams;
+  const { since, until } = resolveTimeRange({ t, from, to });
 
-  const [latest, history, latencyData, throughputData, gatewayLatencyData] = await Promise.all([
+  const [latest, historyRaw, latencyDataRaw, throughputDataRaw, gatewayLatencyDataRaw] = await Promise.all([
     fetchCorrelationLatest(),
     fetchCorrelationHistory(since),
     fetchLatencyHistory(since, "bcube"),
     fetchThroughputHistory(since),
     fetchLatencyHistory(since, "gateway"),
   ]);
+  const history = filterByUntil(historyRaw, until);
+  const latencyData = filterByUntil(latencyDataRaw, until);
+  const throughputData = filterByUntil(throughputDataRaw, until);
+  const gatewayLatencyData = filterByUntil(gatewayLatencyDataRaw, until);
 
   const correlations = latest?.correlations || [];
 

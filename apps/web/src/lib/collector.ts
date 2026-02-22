@@ -26,6 +26,11 @@ async function fetchCollector<T>(path: string): Promise<T | null> {
 
 // ── Timeframe helpers ────────────────────────────────────────
 
+export interface TimeRange {
+  since?: string;
+  until?: string;
+}
+
 /**
  * Convert a timeframe key (from the URL ?t= param) to an ISO timestamp.
  * Returns undefined for "all" (= no filter).
@@ -35,6 +40,34 @@ export function timeframeToSince(t: string | undefined): string | undefined {
   const tf = TIMEFRAMES.find((f) => f.key === key);
   if (!tf || tf.ms === 0) return undefined; // "all" or unrecognised
   return new Date(Date.now() - tf.ms).toISOString();
+}
+
+/**
+ * Resolve search params into a time range.
+ * Custom range (`from`/`to`) takes precedence over preset (`t`).
+ */
+export function resolveTimeRange(params: {
+  t?: string;
+  from?: string;
+  to?: string;
+}): TimeRange {
+  if (params.from) {
+    return { since: params.from, until: params.to };
+  }
+  return { since: timeframeToSince(params.t) };
+}
+
+/**
+ * Filter an array of rows by an `until` timestamp (inclusive).
+ * Rows must have a `timestamp` field (ISO string).
+ * Returns null if input is null.
+ */
+export function filterByUntil<T extends { timestamp: string }>(
+  rows: T[] | null,
+  until?: string
+): T[] | null {
+  if (!rows || !until) return rows;
+  return rows.filter((r) => r.timestamp <= until);
 }
 
 /** Append ?since=ISO to a path if since is defined */

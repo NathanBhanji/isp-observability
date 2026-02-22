@@ -1,5 +1,5 @@
 import { Metadata } from "next";
-import { fetchRouterLatest, fetchRouterHistory, fetchThroughputLatest, timeframeToSince } from "@/lib/collector";
+import { fetchRouterLatest, fetchRouterHistory, fetchThroughputLatest, resolveTimeRange, filterByUntil } from "@/lib/collector";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { VerdictCard, type VerdictStatus } from "@/components/dashboard/verdict-card";
@@ -11,16 +11,17 @@ export const metadata: Metadata = { title: "Network Status" };
 export default async function RouterPage({
   searchParams,
 }: {
-  searchParams: Promise<{ t?: string }>;
+  searchParams: Promise<{ t?: string; from?: string; to?: string }>;
 }) {
-  const { t } = await searchParams;
-  const since = timeframeToSince(t);
+  const { t, from, to } = await searchParams;
+  const { since, until } = resolveTimeRange({ t, from, to });
 
-  const [latest, history, throughput] = await Promise.all([
+  const [latest, historyRaw, throughput] = await Promise.all([
     fetchRouterLatest(),
     fetchRouterHistory(since),
     fetchThroughputLatest(),
   ]);
+  const history = filterByUntil(historyRaw, until);
 
   // Cross-reference UPnP vs actual
   const measuredMaxMbps = Math.max(

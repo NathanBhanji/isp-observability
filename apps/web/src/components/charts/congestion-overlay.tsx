@@ -34,6 +34,8 @@ import {
   type JoinedPoint,
   type CongestionEvent,
 } from "@/lib/congestion";
+import { useChartBrush } from "@/hooks/use-chart-brush";
+import { formatTimestamp } from "@/lib/time-format";
 
 interface Checkpoint {
   /** Index into the event slice where animation should pause */
@@ -784,6 +786,7 @@ function OverviewTab({
   events: CongestionEvent[];
   isFullscreen: boolean;
 }) {
+  const brush = useChartBrush();
   const speedDomain = useMemo(() => {
     const speeds = data.filter((p) => p.speed != null).map((p) => p.speed!);
     const wanSpeeds = data
@@ -803,16 +806,20 @@ function OverviewTab({
     return [0, Math.max(...lats) * 1.2];
   }, [data]);
 
-  // Pad events for overview visibility
+  // Pad events for overview visibility — resolve to timestamps for the x-axis
   const paddedEvents = useMemo(() => {
     const maxIdx = data.length - 1;
     const PAD = 5;
-    return events.map((ev) => ({
-      ...ev,
-      joinedStartIdx: Math.max(0, ev.joinedStartIdx - PAD),
-      joinedEndIdx: Math.min(maxIdx, ev.joinedEndIdx + PAD),
-    }));
-  }, [events, data.length]);
+    return events.map((ev) => {
+      const startIdx = Math.max(0, ev.joinedStartIdx - PAD);
+      const endIdx = Math.min(maxIdx, ev.joinedEndIdx + PAD);
+      return {
+        ...ev,
+        startTimestamp: data[startIdx]?.timestamp ?? "",
+        endTimestamp: data[endIdx]?.timestamp ?? "",
+      };
+    });
+  }, [events, data]);
 
   return (
     <div className="space-y-4">
@@ -820,10 +827,16 @@ function OverviewTab({
       <ChartContainer
         config={congestionOverlayConfig}
         className={
-          isFullscreen ? "flex-1 min-h-[400px] w-full" : "min-h-[320px] w-full"
+          isFullscreen ? "flex-1 min-h-[400px] w-full select-none" : "min-h-[320px] w-full select-none"
         }
       >
-        <ComposedChart data={data} accessibilityLayer>
+        <ComposedChart
+          data={data}
+          accessibilityLayer
+          onMouseDown={brush.onMouseDown}
+          onMouseMove={brush.onMouseMove}
+          onMouseUp={brush.onMouseUp}
+        >
           <defs>
             <linearGradient id="fillSpeed-ov" x1="0" y1="0" x2="0" y2="1">
               <stop offset="5%" stopColor="hsl(160 60% 45%)" stopOpacity={0.35} />
@@ -840,15 +853,13 @@ function OverviewTab({
           </defs>
           <CartesianGrid vertical={false} strokeDasharray="3 3" />
           <XAxis
-            dataKey="idx"
-            type="number"
-            domain={[0, data.length - 1]}
+            dataKey="timestamp"
             tickLine={false}
             axisLine={false}
             tickMargin={8}
             fontSize={11}
             tick={{ fill: "hsl(0 0% 65%)" }}
-            tickFormatter={(idx: number) => data[idx]?.time ?? ""}
+            tickFormatter={(v) => formatTimestamp(v, data)}
           />
           <YAxis
             yAxisId="speed"
@@ -893,6 +904,15 @@ function OverviewTab({
           <ChartTooltip
             content={
               <ChartTooltipContent
+                labelFormatter={(_, payload) => {
+                  const ts = payload?.[0]?.payload?.timestamp;
+                  if (!ts) return "";
+                  const d = new Date(ts);
+                  return d.toLocaleString("en-GB", {
+                    day: "numeric", month: "short",
+                    hour: "2-digit", minute: "2-digit",
+                  });
+                }}
                 formatter={(value, name) => {
                   if (name === "speed")
                     return (
@@ -960,18 +980,24 @@ function OverviewTab({
             }}
           />
 
-          {paddedEvents.map((ev, i) => (
-            <ReferenceArea
-              key={`congestion-${i}`}
-              yAxisId="speed"
-              x1={ev.joinedStartIdx}
-              x2={ev.joinedEndIdx}
-              fill="hsl(0 70% 50%)"
-              fillOpacity={0.08}
-              stroke="hsl(0 70% 50% / 0.3)"
-              strokeDasharray="3 3"
-            />
-          ))}
+          {paddedEvents.map((ev, i) =>
+            ev.startTimestamp && ev.endTimestamp ? (
+              <ReferenceArea
+                key={`congestion-${i}`}
+                yAxisId="speed"
+                x1={ev.startTimestamp}
+                x2={ev.endTimestamp}
+                fill="hsl(0 70% 50%)"
+                fillOpacity={0.08}
+                stroke="hsl(0 70% 50% / 0.3)"
+                strokeDasharray="3 3"
+              />
+            ) : null
+          )}
+
+          {brush.referenceAreaProps && (
+            <ReferenceArea yAxisId="speed" {...brush.referenceAreaProps} />
+          )}
 
           <Area
             yAxisId="speed"
@@ -984,6 +1010,7 @@ function OverviewTab({
             dot={false}
             connectNulls
             name="wanSpeedMbps"
+            isAnimationActive={false}
           />
           <Area
             yAxisId="speed"
@@ -995,6 +1022,7 @@ function OverviewTab({
             dot={false}
             connectNulls
             name="speed"
+            isAnimationActive={false}
           />
           <Area
             yAxisId="latency"
@@ -1006,6 +1034,7 @@ function OverviewTab({
             dot={false}
             connectNulls
             name="latency"
+            isAnimationActive={false}
           />
           <Line
             yAxisId="latency"
@@ -1016,6 +1045,7 @@ function OverviewTab({
             dot={false}
             connectNulls
             name="routerLatency"
+            isAnimationActive={false}
           />
         </ComposedChart>
       </ChartContainer>
@@ -1216,6 +1246,9 @@ export function CongestionOverlay({
                   {events.length > 1 ? "s" : ""} detected
                 </span>
               )}
+              <span className="ml-2 text-[10px] text-muted-foreground/60">
+                Drag to zoom (overview tab)
+              </span>
             </CardDescription>
           </div>
           <Button

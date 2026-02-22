@@ -3,7 +3,8 @@ import {
   fetchThroughputLatest,
   fetchThroughputHistory,
   fetchThroughputTimeseries,
-  timeframeToSince,
+  resolveTimeRange,
+  filterByUntil,
 } from "@/lib/collector";
 import { THRESHOLDS, ISP_PLAN } from "@isp/shared";
 import { VerdictCard, type VerdictStatus } from "@/components/dashboard/verdict-card";
@@ -33,15 +34,16 @@ export const metadata: Metadata = { title: "Speed Tests" };
 export default async function ThroughputPage({
   searchParams,
 }: {
-  searchParams: Promise<{ t?: string }>;
+  searchParams: Promise<{ t?: string; from?: string; to?: string }>;
 }) {
-  const { t } = await searchParams;
-  const since = timeframeToSince(t);
+  const { t, from, to } = await searchParams;
+  const { since, until } = resolveTimeRange({ t, from, to });
 
-  const [latest, history] = await Promise.all([
+  const [latest, historyRaw] = await Promise.all([
     fetchThroughputLatest(),
     fetchThroughputHistory(since),
   ]);
+  const history = filterByUntil(historyRaw, until);
 
   // Get timeseries for the latest single-stream download test
   const singleDlTest = latest?.download?.single || latest?.single;

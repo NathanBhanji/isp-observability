@@ -1,5 +1,5 @@
 import { Metadata } from "next";
-import { fetchLatencyLatest, fetchLatencyHistory, timeframeToSince } from "@/lib/collector";
+import { fetchLatencyLatest, fetchLatencyHistory, resolveTimeRange, filterByUntil } from "@/lib/collector";
 import { PING_TARGETS, THRESHOLDS, TARGET_LABELS } from "@isp/shared";
 import { VerdictCard, type VerdictStatus } from "@/components/dashboard/verdict-card";
 import { LatencyTimeline } from "@/components/charts/latency-timeline";
@@ -13,15 +13,16 @@ export const metadata: Metadata = { title: "Latency Analysis" };
 export default async function LatencyPage({
   searchParams,
 }: {
-  searchParams: Promise<{ t?: string }>;
+  searchParams: Promise<{ t?: string; from?: string; to?: string }>;
 }) {
-  const { t } = await searchParams;
-  const since = timeframeToSince(t);
+  const { t, from, to } = await searchParams;
+  const { since, until } = resolveTimeRange({ t, from, to });
 
-  const [latest, history] = await Promise.all([
+  const [latest, historyRaw] = await Promise.all([
     fetchLatencyLatest(),
     fetchLatencyHistory(since),
   ]);
+  const history = filterByUntil(historyRaw, until);
 
   const sortedTargets = [...PING_TARGETS].sort((a, b) => a.hop - b.hop);
   const sortedLatest = sortedTargets.map((target) =>

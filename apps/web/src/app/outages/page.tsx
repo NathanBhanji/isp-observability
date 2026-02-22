@@ -1,5 +1,5 @@
 import { Metadata } from "next";
-import { fetchOutageSummary, fetchOutages, fetchCollectorStatus, fetchLatencyLatest, timeframeToSince } from "@/lib/collector";
+import { fetchOutageSummary, fetchOutages, fetchCollectorStatus, fetchLatencyLatest, resolveTimeRange } from "@/lib/collector";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { VerdictCard, type VerdictStatus } from "@/components/dashboard/verdict-card";
@@ -19,10 +19,10 @@ export const metadata: Metadata = { title: "Connectivity Outages" };
 export default async function OutagesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ t?: string }>;
+  searchParams: Promise<{ t?: string; from?: string; to?: string }>;
 }) {
-  const { t } = await searchParams;
-  const since = timeframeToSince(t);
+  const { t, from, to } = await searchParams;
+  const { since } = resolveTimeRange({ t, from, to });
 
   const [summary, outageList, collectorStatus, latencyLatest] = await Promise.all([
     fetchOutageSummary(since),
