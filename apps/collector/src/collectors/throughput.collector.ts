@@ -110,7 +110,7 @@ export class ThroughputCollector implements Collector {
       const wanBefore = await getWanTrafficCounters(2);
       const pingPromise = startPinging();
 
-      const single = await runOoklaTest(1, 10, server);
+      const single = await runOoklaTest(1, 20, server);
       serverLabel = single.server;
 
       currentThroughput = single.speedMbps;
@@ -166,7 +166,7 @@ export class ThroughputCollector implements Collector {
       const wanBeforeMulti = await getWanTrafficCounters(2);
       const pingPromise = startPinging();
 
-      const multi = await runOoklaTest(MULTI_STREAM_COUNT, 10, server);
+      const multi = await runOoklaTest(MULTI_STREAM_COUNT, 20, server);
       serverLabel = multi.server;
 
       currentThroughput = multi.speedMbps;
@@ -253,7 +253,7 @@ export class ThroughputCollector implements Collector {
       // Snapshot WAN counters right before data transfer (server already resolved)
       const wanBeforeUl = await getWanTrafficCounters(2);
 
-      const upload = await runOoklaUploadTest(1, 10, server);
+      const upload = await runOoklaUploadTest(1, 20, server);
 
       // Snapshot WAN counters after upload
       const wanAfterUl = await getWanTrafficCounters();
@@ -296,7 +296,7 @@ export class ThroughputCollector implements Collector {
       // Snapshot WAN counters right before data transfer (server already resolved)
       const wanBeforeUlMulti = await getWanTrafficCounters(2);
 
-      const uploadMulti = await runOoklaUploadTest(MULTI_STREAM_COUNT, 10, server);
+      const uploadMulti = await runOoklaUploadTest(MULTI_STREAM_COUNT, 20, server);
 
       // Snapshot WAN counters after upload
       const wanAfterUlMulti = await getWanTrafficCounters();

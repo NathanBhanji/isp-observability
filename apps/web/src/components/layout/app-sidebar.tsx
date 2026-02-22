@@ -3,13 +3,10 @@
 import {
   Activity,
   BarChart3,
-  Gavel,
   GitBranch,
   Home,
-  Lightbulb,
   Radio,
   Route,
-  FileText,
   Server,
   WifiOff,
 } from "lucide-react";
@@ -31,9 +28,8 @@ import {
 
 const navItems = [
   { title: "Overview", href: "/", icon: Home },
-  { title: "Verdict", href: "/verdict", icon: Gavel },
+  { title: "Speed Tests", href: "/throughput", icon: BarChart3 },
   { title: "Latency", href: "/latency", icon: Activity },
-  { title: "Throughput", href: "/throughput", icon: BarChart3 },
   { title: "Congestion", href: "/congestion", icon: GitBranch },
   { title: "Traceroute", href: "/traceroute", icon: Route },
 ];

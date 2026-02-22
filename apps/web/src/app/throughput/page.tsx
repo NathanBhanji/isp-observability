@@ -28,7 +28,7 @@ import {
   type ThroughputTest,
 } from "@/lib/throughput-utils";
 
-export const metadata: Metadata = { title: "Throughput Analysis" };
+export const metadata: Metadata = { title: "Speed Tests" };
 
 export default async function ThroughputPage({
   searchParams,
@@ -222,7 +222,7 @@ export default async function ThroughputPage({
   return (
     <div className="p-4 sm:p-6 space-y-4">
       <div>
-        <h1 className="text-xl font-semibold tracking-tight">Speed Analysis</h1>
+        <h1 className="text-xl font-semibold tracking-tight">Speed Tests</h1>
         <p className="text-sm text-muted-foreground">
           Download and upload speed testing, including throttle detection
         </p>
@@ -271,7 +271,7 @@ export default async function ThroughputPage({
             title: "Speed Throttling Detected",
             description: `Across ${dlRatios.length} paired tests, single-connection downloads reach only ${dlSingleMedian?.toFixed(0)} Mbps while multi-connection achieves ${dlMultiMedian?.toFixed(0)} Mbps (${medianDlRatio?.toFixed(2)}x raw ratio${medianAdjDlRatio != null ? `, ${medianAdjDlRatio.toFixed(2)}x WAN-adjusted` : ""}). Persistent pattern.`,
             action: "View evidence",
-            actionHref: "/verdict",
+            actionHref: "/",
             items: [
               "Contact your ISP and reference this evidence",
               "Streaming services using single connections will be affected",
